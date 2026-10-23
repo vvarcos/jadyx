@@ -112,7 +112,8 @@ button.tile:hover:not(:disabled){background:none}.tile:hover .art{transform:tran
 button.back{height:34px;padding:0 14px;margin-bottom:20px;font-size:13px;color:var(--hint)}
 .hero{display:grid;grid-template-columns:96px minmax(0,1fr) auto;gap:20px;align-items:center;margin-bottom:8px}.hero .art{width:96px;margin:0}
 .hero p{margin-top:4px}#game-warning{margin-bottom:24px;font-size:13px}
-.seg{display:inline-flex;padding:4px;margin-bottom:16px;border-radius:999px;background:var(--row);border:1px solid var(--line)}
+)HTML"
+R"HTML(.seg{display:inline-flex;padding:4px;margin-bottom:16px;border-radius:999px;background:var(--row);border:1px solid var(--line)}
 .seg button{height:34px;border:0;background:none;color:var(--muted)}.seg button:hover:not(:disabled){background:none;color:var(--text)}
 .seg button[aria-selected=true],.seg button[aria-selected=true]:hover{background:var(--text);color:var(--canvas)}
 .items{display:flex;flex-direction:column;gap:8px;margin:0 0 20px;padding:0;list-style:none}
@@ -199,7 +200,8 @@ a.pill{display:inline-flex;align-items:center;gap:8px;height:44px;padding:0 20px
 <label class="drop"><input id="content-files" type="file" accept=".nsp" multiple><svg class="ico" viewBox="0 0 24 24"><path d="M12 15V4m0 0L8 8m4-4 4 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
 <strong id="content-pick">Choose update NSP files</strong><span id="content-drop">or drop them here</span><span class="picked" id="content-picked"></span></label>
 <div class="actions"><button id="content-send" class="primary">Upload and install</button><button id="content-pause">Pause</button><button class="danger" id="content-discard">Discard partial file</button></div>
-<div class="panel"><div class="panel-top"><p id="content-job" role="status" aria-live="polite"></p><span class="pct" id="content-percent"></span></div>
+)HTML"
+R"HTML(<div class="panel"><div class="panel-top"><p id="content-job" role="status" aria-live="polite"></p><span class="pct" id="content-percent"></span></div>
 <progress id="content-progress" max="1" value="0"></progress><div class="stats"><p id="content-rate"></p><p id="content-eta"></p></div></div></div></section></div>
 <div class="view" id="view-system" hidden><nav class="cats"><p class="kicker" id="system-kicker">System files</p>
 <button class="cat" id="cat-keys" aria-selected="true"><svg class="ico" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M14 9l2 2"/></svg>
@@ -281,7 +283,8 @@ const labels=pt?{'tab-content':'Conteúdo','tab-system':'Sistema','content-kicke
 for(const [id,text]of Object.entries(labels))$(id).textContent=text;
 if(es||pt)document.title='Portal Jadyx';
 // The header's tabs and each page's categories, as in the console: one of each group is shown.
-const tabs=[['tab-content','view-content'],['tab-system','view-system']],categories=[['cat-keys','keys-pane'],['cat-firmware','firmware-pane']];
+)HTML"
+R"HTML(const tabs=[['tab-content','view-content'],['tab-system','view-system']],categories=[['cat-keys','keys-pane'],['cat-firmware','firmware-pane']];
 function choose(group,chosen){for(const [button,view]of group){$(button).ariaSelected=String(button===chosen);$(view).hidden=button!==chosen;}}
 for(const group of [tabs,categories])for(const [button]of group)$(button).addEventListener('click',()=>choose(group,button));
 const selectedChunk=Number(new URLSearchParams(location.search).get('chunk'));
@@ -423,7 +426,8 @@ $('send').addEventListener('click',async()=>{
  if(running||systemRunning||state.system?.busy)return;const files=Array.from($('files').files);if(!files.length){$('message').textContent=words.choose;return;}
  running=true;stopped=false;rates=[];$('message').textContent='';render();
  try{for(let i=0;i<files.length;i++){if(stopped)break;$('queue').textContent=words.queue+': '+(files.length-i-1);await sendFile(files[i],files.length===1?$('name').value:files[i].name);}}
- catch(error){$('message').textContent=reason(error);}finally{running=false;currentXHR=null;try{await refresh();}catch{}render();}
+)HTML"
+R"HTML( catch(error){$('message').textContent=reason(error);}finally{running=false;currentXHR=null;try{await refresh();}catch{}render();}
 });
 async function control(action,target=gameTarget){
  stopped=true;if(currentXHR)currentXHR.abort();$('message').textContent='';
@@ -564,7 +568,8 @@ function renderLibrary(){
  if(busy!==lastBusy){lastBusy=busy;renderItems();}
  $('game-remove').hidden=!game.removable;$('game-remove').disabled=busy;
  $('game-remove').textContent=armed==='game'?libraryWords.confirm:libraryWords.remove_game;
- $('game-warning').textContent=game.removable?libraryWords.warning:libraryWords.external;
+)HTML"
+R"HTML( $('game-warning').textContent=game.removable?libraryWords.warning:libraryWords.external;
  const active=s.id&&!['complete','validating','publishing'].includes(s.phase);
  $('content-files').disabled=contentRunning;
  $('content-send').disabled=busy||s.available===false||['ready','validating','publishing'].includes(s.phase);
@@ -634,7 +639,8 @@ function renderSystem(){
  $('system-upload').hidden=!session||!state.system_supported;
  $('tab-system').hidden=!state.system_supported;
  if(!state.system_supported){if(!$('view-system').hidden)choose(tabs,'tab-content');return;}
- for(const kind of ['keys','firmware'])$(kind+'-send').disabled=running||systemRunning||state.transfer?.busy||!s.available||(s.busy&&s.kind!==kind)||!['idle','receiving','complete'].includes(s.phase);
+)HTML"
+R"HTML( for(const kind of ['keys','firmware'])$(kind+'-send').disabled=running||systemRunning||state.transfer?.busy||!s.available||(s.busy&&s.kind!==kind)||!['idle','receiving','complete'].includes(s.phase);
  $('system-job').textContent=(systemWords[s.phase]||systemWords.idle)+(s.count?' · '+(s.completed||0)+' / '+s.count:'')+(s.error?'\n'+systemReason(Error(s.error)):'');
  const f=s.file||{};$('system-progress').value=f.length?Math.min(1,(f.received||0)/f.length):0;$('system-percent').textContent=percent(f.received||0,f.length);
  $('system-review').hidden=s.phase!=='review';
@@ -764,7 +770,8 @@ const uw=pt?{kicker:'Atualização do Jadyx',title:'Atualizar Jadyx',preparing:'
  busy:'Aguarde o fim das transferências ativas.',verify_in_app:'Abra Atualizações no console e verifique o pacote de novo.',failed:'Não foi possível preparar o pacote. Tente de novo.'}
 :es?{kicker:'Actualización de Jadyx',title:'Actualizar Jadyx',preparing:'Preparando el paquete verificado…',verified:'Firma verificada',
  s1:'Conecta el navegador',s1b:'Hecho: este navegador está conectado a la consola.',s2:'Descarga e instala',s2b:'Se descarga el paquete y se abre Xbox Device Portal en otra pestaña.',
- go:'Descargar e instalar',again:'Descargar de nuevo',s3:'Termina en Device Portal',
+)HTML"
+R"HTML( go:'Descargar e instalar',again:'Descargar de nuevo',s3:'Termina en Device Portal',
  s3b:'Si avisa del certificado, elige Avanzado → Continuar. Luego Add → elige el archivo descargado → Next → Install.',portal:'Abrir Device Portal',
  keep:'No desinstales Jadyx: borraría tus partidas y ajustes. Instala encima.',skip:'Ir al contenido',
  installing:'Instalando la actualización',installingb:'Jadyx se cerró para instalarse. Cuando Device Portal termine, ábrelo en la consola: confirmará la versión nueva.',
