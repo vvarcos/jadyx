@@ -187,6 +187,8 @@ enum class Text : std::uint16_t {
     ControllersHint,
     System,
     SystemHint,
+    MiiEditor,
+    MiiEditorHint,
     EmulatorData,
     SettingsFirmwareFiles,
     SettingsGameFolders,
@@ -267,6 +269,7 @@ enum class Text : std::uint16_t {
     FolderHasGameNca,
     KeysMissingHeaderKey,
     FirmwareIncomplete,
+    MiiEditorNoFirmware,
 
     // System page
     SystemTitle,

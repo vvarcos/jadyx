@@ -241,6 +241,8 @@ const Catalog PortugueseBrazilCatalog = MakeCatalog({
     {Text::ControllersHint, L"Escolha seu dispositivo e personalize os comandos"},
     {Text::System, L"Sistema"},
     {Text::SystemHint, L"Nome de usuário, idioma e região"},
+    {Text::MiiEditor, L"Editor de Mii"},
+    {Text::MiiEditorHint, L"Crie ou escolha o Mii com que seus jogos vão te ver"},
     {Text::EmulatorData, L"DADOS DO EMULADOR"},
     {Text::SettingsFirmwareFiles, L"Arquivos de firmware"},
     {Text::SettingsGameFolders, L"Pastas de jogos"},
@@ -320,7 +322,8 @@ const Catalog PortugueseBrazilCatalog = MakeCatalog({
     {Text::FirmwareUnreadable, L"Firmware ilegível com essas chaves; o instalado não foi substituído."},
     {Text::FolderHasGameNca, L"A pasta contém um NCA de jogo, não firmware."},
     {Text::KeysMissingHeaderKey, L"prod.keys não contém uma header_key válida."},
-    {Text::FirmwareIncomplete, L"Firmware incompleto: falta SystemVersion ou MiiEdit."},
+    {Text::FirmwareIncomplete, L"Firmware incompleto: falta o SystemVersion ou o MiiEdit."},
+    {Text::MiiEditorNoFirmware, L"Falta o firmware do seu console: importe os arquivos de firmware no gerenciador de arquivos para abrir o editor de Mii."},
 
     // System page
     {Text::SystemTitle, L"Sistema"},

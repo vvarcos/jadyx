@@ -15,9 +15,9 @@ SPDX-License-Identifier: GPL-3.0-or-later
 </p>
 
 <p align="center">
-  <a href="https://github.com/JulianDr14/jadyx/releases/latest"><b>Download the latest release</b></a> ·
+  <a href="https://github.com/vvarcos/jadyx/releases/latest"><b>Download the latest release</b></a> ·
   <a href="https://discord.gg/3BhyyXGxpd"><b>Discord</b></a> ·
-  <a href="https://github.com/JulianDr14/jadyx/issues/new/choose"><b>Report a bug</b></a>
+  <a href="https://github.com/vvarcos/jadyx/issues/new/choose"><b>Report a bug</b></a>
 </p>
 
 <p align="center">
@@ -35,10 +35,42 @@ SPDX-License-Identifier: GPL-3.0-or-later
 > firmware or games and never will: use only the ones you dumped from a console and games you own.
 > See [Legal](#legal).
 
-**Contents:** [Progress](#progress) ([the memory wall](#the-memory-wall)) ·
-[Architecture](#architecture) · [Running it on a console](#running-it-on-a-console) ·
-[Building](#building) · [Documentation](#documentation) · [Acknowledgements](#acknowledgements) ·
-[Legal](#legal) · [License](#license)
+> **This is an experimental fork of [JulianDr14/jadyx](https://github.com/JulianDr14/jadyx).** All the
+> credit for Jadyx — the UWP port, the Direct3D 12 renderer, the front end and this documentation —
+> goes to **JulianDr14**. This fork tracks his `main` and adds a few changes of its own, one per
+> commit: see [What this fork adds](#what-this-fork-adds). Do not take it for an official Jadyx
+> release and please do not report its problems upstream.
+>
+> **AI-assisted development.** The code changes, documentation and measurement reports here are
+> drafted with AI assistance under my direction, then reviewed, built and tested before anything is
+> published. Where something has not been verified on a console, the notes say so.
+
+**Contents:** [What this fork adds](#what-this-fork-adds) · [Progress](#progress)
+([the memory wall](#the-memory-wall)) · [Architecture](#architecture) ·
+[Running it on a console](#running-it-on-a-console) · [Building](#building) ·
+[Documentation](#documentation) · [Acknowledgements](#acknowledgements) · [Legal](#legal) ·
+[License](#license)
+
+## What this fork adds
+
+Rebased on Jadyx 0.3.8.5, one change per commit:
+
+- **The firmware Mii editor can be opened by hand.** `MiiEdit` is Nintendo's own applet, not
+  emulator code, so it used to appear only when a game asked for it. There is now a **Mii editor**
+  row in Settings and a `boot.cfg applet=mii_edit` switch to launch it on its own, and the
+  library gets control back when the applet closes itself. This needs the composite below to be
+  visible, and it needs firmware imported with the applet inside, which the importer already
+  requires.
+- **The whole layer stack is composited.** The Switch's display can deliver several layers at once
+  — a game and an applet on top of it — and only the bottom one was presented, so the Mii editor
+  drew but nobody saw it. Each layer is now drawn back to front, with a pipeline per blend mode.
+- **Firmware import tolerates game files.** A folder that mixes games with the firmware used to be
+  refused whole; the game NCAs are now left out of the import and the firmware installs. The files
+  you picked are never modified: the staged copy drops them.
+
+The Brazilian Portuguese catalogue and the wider pipeline prewarm this fork used to carry are part
+of Jadyx itself now, so they are no longer separate changes here. Each change that is not upstream
+is written up in [docs/xbox/](docs/xbox/README.md) with its test log and its limits.
 
 ## Progress
 

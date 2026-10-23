@@ -241,6 +241,8 @@ const Catalog SpanishCatalog = MakeCatalog({
     {Text::ControllersHint, L"Elige tu dispositivo y personaliza los controles"},
     {Text::System, L"Sistema"},
     {Text::SystemHint, L"Nombre de usuario, idioma y región"},
+    {Text::MiiEditor, L"Editor de Mii"},
+    {Text::MiiEditorHint, L"Crea o elige el Mii con el que te verán tus juegos"},
     {Text::EmulatorData, L"DATOS DEL EMULADOR"},
     {Text::SettingsFirmwareFiles, L"Archivos de firmware"},
     {Text::SettingsGameFolders, L"Carpetas de juegos"},
@@ -321,6 +323,7 @@ const Catalog SpanishCatalog = MakeCatalog({
     {Text::FolderHasGameNca, L"La carpeta contiene un NCA de juego, no de firmware."},
     {Text::KeysMissingHeaderKey, L"prod.keys no contiene una header_key válida."},
     {Text::FirmwareIncomplete, L"Firmware incompleto: falta SystemVersion o MiiEdit."},
+    {Text::MiiEditorNoFirmware, L"Falta el firmware de tu consola: importa los archivos de firmware en el gestor de archivos para abrir el editor de Mii."},
 
     // System page
     {Text::SystemTitle, L"Sistema"},
