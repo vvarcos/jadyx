@@ -1840,6 +1840,15 @@ std::optional<std::string> ShowGameLibrary(void* core_window, unsigned width, un
                     switch (configuration.selected) {
                     case HomeFiles: configuration.files = true; configuration.selected = 0; break;
                     case HomeControllers: settings = true; return_to_configuration = true; setting_row = 0; break;
+                    case HomeMii:
+                        // The firmware's own Mii editor, as the console's Settings > Mii. It needs
+                        // the keys to read the NCA and the firmware: the file manager refuses an
+                        // import without MiiEdit, so an imported firmware has it.
+                        if (!configuration.status.keys_ready) configuration.notice = Tr(T::KeysFirst);
+                        else if (configuration.status.firmware_files == 0)
+                            configuration.notice = Tr(T::MiiEditorNoFirmware);
+                        else return std::string{MiiEditorRequest};
+                        break;
                     default:
                         system_page.open = true;
                         system_page.selected = SystemPage::UserName;

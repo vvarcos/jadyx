@@ -62,6 +62,7 @@
 #include "core/device_memory.h"
 #include "video_core/host1x/host1x.h"
 #include "video_core/host1x/syncpoint_manager.h"
+#include "core/file_sys/content_archive.h"
 #include "core/file_sys/control_metadata.h"
 #include "core/file_sys/registered_cache.h"
 #include "core/file_sys/vfs/vfs_real.h"
@@ -170,6 +171,10 @@ void SetOpaqueAstcToBc1(bool enabled) noexcept;        // texture_cache/util.h
 namespace {
 std::atomic<u64> g_test_memory_limit{};
 std::atomic<bool> g_gpu_command_failed{};
+/// Why the guest asked to leave the session, if it did: 0 nothing, 1 the session's last applet went
+/// away, 2 an applet asked for another program. Guest threads write it, the play loop reads it; the
+/// frontend then leaves the session the way the game menu's "back to the library" does.
+std::atomic<int> g_guest_exit_request{};
 /// The PC window's mode. ApplicationView belongs to the UI thread: it publishes the state here and
 /// applies the changes the in-game menu asks for (1 full screen, 0 windowed, -1 none).
 std::atomic<bool> g_can_fullscreen{};
@@ -331,6 +336,9 @@ struct BootConfig {
     bool timer_profile{}; ///< HostTiming waits only; opt-in, separate from draw profiling.
     /// File name of a game in LocalState\games to boot instead of boot.nro (package-appx.ps1 -Game).
     std::string game;
+    /// Library applet of the firmware to boot instead of a game ("applet=mii_edit"): the real Mii
+    /// editor NCA runs as the main process, the same thing the Qt frontend's Launch Mii Edit does.
+    std::string applet;
     /// Eden's log filter (e.g. "*:Info HW.GPU:Debug"); empty keeps the default.
     std::string log_filter;
     /// Graphics bugs, unsupported features and every UNIMPLEMENTED/assert, deduplicated and
@@ -552,6 +560,7 @@ int RunHeadlessBoot(const std::string& nro_path, const BootSurface& surface,
 
     Core::System system{};
     g_gpu_command_failed.store(false, std::memory_order_release);
+    g_guest_exit_request.store(0, std::memory_order_relaxed);
     VideoCommon::GPUThread::SetExceptionObserver([](const char* message) {
         // Logged here, on the GPU thread: tells a stuck recovery apart from a GPU thread that
         // never got to report its failure.
@@ -620,6 +629,31 @@ int RunHeadlessBoot(const std::string& nro_path, const BootSurface& surface,
     if (ApplyUserName(system.GetProfileManager(), LoadSystemSettings().user_name)) {
         WriteDiag("step: profile name from Settings > System");
     }
+    // "applet=" boots a library applet of the installed firmware instead of a game: the Mii editor
+    // is the firmware's own creator, and this is how the Qt frontend's Launch Mii Edit runs it.
+    // There is no game content to resolve and no game session for Pulse to keep; the NCA comes from
+    // the NAND the file manager imported (an import without it is refused as incomplete firmware).
+    Service::AM::AppletId applet_id{Service::AM::AppletId::None};
+    u64 applet_program_id{};
+    std::string applet_path;
+    if (!config.applet.empty()) {
+        if (config.applet == "mii_edit") {
+            applet_id = Service::AM::AppletId::MiiEdit;
+            applet_program_id = static_cast<u64>(Service::AM::AppletProgramId::MiiEdit);
+        }
+        if (applet_id == Service::AM::AppletId::None) {
+            WriteDiag("applet: unknown name " + config.applet);
+            shutdown(); return 20;
+        }
+        const auto applet_nca = system.GetFileSystemController().GetSystemNANDContents()->GetEntry(
+            applet_program_id, FileSys::ContentRecordType::Program);
+        if (!applet_nca) {
+            WriteDiag("applet: " + config.applet + " is not in the imported firmware");
+            shutdown(); return 21;
+        }
+        applet_path = applet_nca->GetFullPath();
+        WriteDiag("applet: booting " + config.applet + " from " + applet_path);
+    }
     // Played by hand, a game asking for text gets the on-screen keyboard (uwp_software_keyboard.h);
     // unattended runs keep the core's stand-in, which answers on its own.
     Jadyx::UwpSoftwareKeyboard* keyboard_applet = nullptr;
@@ -630,18 +664,21 @@ int RunHeadlessBoot(const std::string& nro_path, const BootSurface& surface,
         applets.software_keyboard = std::move(keyboard);
         system.SetFrontendAppletSet(std::move(applets));
     }
-    if (const auto file = system.GetFilesystem()->OpenFile(nro_path, FileSys::OpenMode::Read);
-        file != nullptr && manual_provider.AddEntriesFromContainer(file)) {
-        WriteDiag("step: game contents registered");
+    Content::LaunchResolution content{};
+    if (applet_path.empty()) {
+        if (const auto file = system.GetFilesystem()->OpenFile(nro_path, FileSys::OpenMode::Read);
+            file != nullptr && manual_provider.AddEntriesFromContainer(file)) {
+            WriteDiag("step: game contents registered");
+        }
+        content = Content::ResolveLaunchContent(*system.GetFilesystem(), nro_path, manual_provider,
+                                                Content::ConsumeAllowMissing(nro_path), {}, Content::ReportedSystemVersion(system));
+        if (content.error != Content::Error::None) {
+            WriteDiag("content: launch blocked error=" + std::to_string(static_cast<int>(content.error)));
+            shutdown(); return 16;
+        }
+        if (content.managed)
+            system.GetContentProviderUnion().SetApplicationContentOverride(content.application, &manual_provider);
     }
-    const auto content = Content::ResolveLaunchContent(*system.GetFilesystem(), nro_path, manual_provider,
-                                                       Content::ConsumeAllowMissing(nro_path), {}, Content::ReportedSystemVersion(system));
-    if (content.error != Content::Error::None) {
-        WriteDiag("content: launch blocked error=" + std::to_string(static_cast<int>(content.error)));
-        shutdown(); return 16;
-    }
-    if (content.managed)
-        system.GetContentProviderUnion().SetApplicationContentOverride(content.application, &manual_provider);
     // The player's mod choices (which are off, and their order) before the loader reads any mod,
     // and nothing left of an install the app closed during.
     Mods::ClearScratch(Mods::DefaultModPaths());
@@ -650,18 +687,27 @@ int RunHeadlessBoot(const std::string& nro_path, const BootSurface& surface,
     WriteDiag("step: filesystem factories created");
 
     // As yuzu_cmd. Without the Application applet id, AM never sends the focus messages and a game
-    // waits for them forever after its first ReceiveMessage (homebrew does not wait).
+    // waits for them forever after its first ReceiveMessage (homebrew does not wait). An applet boot
+    // is the mirror image: the applet is itself the main process, loaded from its firmware NCA.
+    const std::string& load_path = applet_path.empty() ? nro_path : applet_path;
     Service::AM::FrontendAppletParameters load_parameters{
         .applet_id = Service::AM::AppletId::Application,
     };
+    if (!applet_path.empty()) {
+        load_parameters.program_id = applet_program_id;
+        load_parameters.applet_id = applet_id;
+        load_parameters.applet_type = Service::AM::AppletType::LibraryApplet;
+        system.GetFrontendAppletHolder().SetCurrentAppletId(applet_id);
+    }
     // Pulse: the identity this boot would save under, and the session it resumes if one matches.
+    // An applet boot keeps no session: it is opened, used and closed on its own.
     std::optional<Common::Pulse::Identity> pulse_identity;
-    if (config.pulse_sessions && PulseSessions::Enabled()) {
+    if (config.pulse_sessions && applet_path.empty() && PulseSessions::Enabled()) {
         try {
-            const auto file = system.GetFilesystem()->OpenFile(nro_path, FileSys::OpenMode::Read);
+            const auto file = system.GetFilesystem()->OpenFile(load_path, FileSys::OpenMode::Read);
             const auto user = system.GetProfileManager().GetUser(0);
             if (file && user) {
-                pulse_identity = PulseSessions::IdentityFor(nro_path, user->uuid, file->GetSize(),
+                pulse_identity = PulseSessions::IdentityFor(load_path, user->uuid, file->GetSize(),
                                                             content.application, content.version,
                                                             content.build_id);
             }
@@ -679,7 +725,7 @@ int RunHeadlessBoot(const std::string& nro_path, const BootSurface& surface,
             PulseSessions::Resume(system, *pulse_identity, [&](const Kernel::ProcessLayoutPin& pin) {
                 system.Kernel().PinNextProcessLayout(pin);
                 loaded = true;
-                load_result = system.Load(emu_window, nro_path, load_parameters);
+                load_result = system.Load(emu_window, load_path, load_parameters);
                 load_already_shutdown = load_result != Core::SystemResultStatus::Success &&
                                         system.IsShuttingDown();
                 if (load_result != Core::SystemResultStatus::Success) {
@@ -710,7 +756,7 @@ int RunHeadlessBoot(const std::string& nro_path, const BootSurface& surface,
         }
     }
     if (!resumed) {
-        load_result = system.Load(emu_window, nro_path, load_parameters);
+        load_result = system.Load(emu_window, load_path, load_parameters);
         load_already_shutdown = load_result != Core::SystemResultStatus::Success &&
                                 system.IsShuttingDown();
     }
@@ -806,6 +852,19 @@ int RunHeadlessBoot(const std::string& nro_path, const BootSurface& surface,
     // Run the guest. CpuManager spins up guest threads; dynarmic compiles + executes their code.
     // A resume's screen stays over it until the game presents.
     if (pulse_screen) pulse_screen->GameStarting();
+    // The guest asks to leave through two doors: the last applet going away (a game closing itself,
+    // or an applet that was the session ending) reaches WindowSystem, which exits the system when no
+    // applet is left, and an applet with no caller returning calls ExecuteProgram (its own
+    // ExitProcessAndReturn). Both only raise the flag: the play loop then leaves the session like
+    // the game menu's "back to the library" does. A game's ExecuteProgram stays unhandled as before.
+    system.RegisterExitCallback([] { g_guest_exit_request.store(1, std::memory_order_relaxed); });
+    if (!applet_path.empty()) {
+        system.RegisterExecuteProgramCallback([](std::size_t index) {
+            LOG_INFO(Frontend, "Frontend: the applet asked for program {}, leaving the session",
+                     index);
+            g_guest_exit_request.store(2, std::memory_order_relaxed);
+        });
+    }
     void(system.Run());
     input.Start(system.HIDCore());
     if (config.gpu_failure_probe) {
@@ -1052,6 +1111,19 @@ int RunHeadlessBoot(const std::string& nro_path, const BootSurface& surface,
                 shutdown();
                 LOG_INFO(Frontend, "Headless boot: session closed with Q.");
                 return 0;
+            }
+            if (const int guest_exit = g_guest_exit_request.load(std::memory_order_relaxed);
+                guest_exit != 0) {
+                // The guest closed the session itself (the Mii editor applet leaving, a game
+                // returning to the home menu we don't have). Back to the library, as if the game
+                // menu had asked for it: no Pulse session is kept, since the game may be gone.
+                WriteDiag(std::string("guest: ") +
+                          (guest_exit == 1 ? "the session's applet ended"
+                                           : "asked for another program it has no caller for") +
+                          "; back to the library | " + MemoryReport());
+                finish_prewarm_budget(tick);
+                shutdown();
+                return RETURN_TO_LIBRARY;
             }
             if (keyboard_applet) {
                 bool changed = false;
@@ -2435,6 +2507,7 @@ struct BootView : implements<BootView, IFrameworkViewSource, IFrameworkView> {
         std::string library_error;
         for (u32 session = 1;; ++session) {
             std::optional<std::string> library_game;
+            std::optional<std::string> library_applet;
             bool show_library = false;
             std::string library_pick;
             try {
@@ -2464,7 +2537,15 @@ struct BootView : implements<BootView, IFrameworkViewSource, IFrameworkView> {
                         WriteDiag("library: closed by user");
                         return;
                     }
-                    WriteDiag("library: selected " + *library_game);
+                    // The settings home can ask for a firmware applet instead of a game (the Mii
+                    // editor): the boot then opens that applet's NCA, with no game content.
+                    if (library_game->starts_with(Jadyx::AppletRequestPrefix)) {
+                        library_applet = library_game->substr(Jadyx::AppletRequestPrefix.size());
+                        library_game.reset();
+                        WriteDiag("library: opening the firmware applet " + *library_applet);
+                    } else {
+                        WriteDiag("library: selected " + *library_game);
+                    }
                     library_error.clear();
                 }
             } catch (const std::exception& e) {
@@ -2480,7 +2561,7 @@ struct BootView : implements<BootView, IFrameworkViewSource, IFrameworkView> {
 
             std::atomic<bool> done{false};
             std::atomic<int> boot_status{0};
-            std::thread worker([&done, &boot_status, surface, library_game]() {
+            std::thread worker([&done, &boot_status, surface, library_game, library_applet]() {
                 winrt::init_apartment(winrt::apartment_type::multi_threaded);
                 std::set_terminate(OnTerminate); // per-thread in the MSVC runtime
                 std::string nro_path;
@@ -2850,6 +2931,9 @@ struct BootView : implements<BootView, IFrameworkViewSource, IFrameworkView> {
                         } else if (line.starts_with("game=")) {
                             config.game = line.substr(5);
                             WriteDiag("boot.cfg: game " + config.game);
+                        } else if (line.starts_with("applet=")) {
+                            config.applet = line.substr(7);
+                            WriteDiag("boot.cfg: applet " + config.applet);
                         }
                     }
                     const std::string local_path = winrt::to_string(
@@ -2860,6 +2944,21 @@ struct BootView : implements<BootView, IFrameworkViewSource, IFrameworkView> {
                         config.play = true;
                         config.run_seconds = 0;
                         config.pulse_sessions = true;
+                    }
+                    if (library_applet) {
+                        // A firmware applet chosen in the library's settings home: the same boot as
+                        // boot.cfg's "applet=", without the game path.
+                        config.applet = *library_applet;
+                        WriteDiag("library: booting the " + config.applet +
+                                  " applet from the imported firmware");
+                    }
+                    if (!config.applet.empty()) {
+                        // A firmware applet is opened by hand and left with its own exit: no time
+                        // limit and no Pulse session, and nro_path stays unused (the NCA is found
+                        // in the imported firmware inside RunHeadlessBoot).
+                        config.play = true;
+                        config.run_seconds = 0;
+                        config.pulse_sessions = false;
                     }
                     if (library_game || !config.game.empty()) {
                         nro_path = library_game ? *library_game : local_path + "\\games\\" + config.game;

@@ -35,8 +35,9 @@ struct ConfigurationPanel {
     bool confirm_import{};
     std::wstring review_text;
 };
-/// Rows of the settings home, in order.
-enum ConfigurationHomeRow : size_t { HomeSystem, HomeControllers, HomeFiles, HomeRowCount };
+/// Rows of the settings home, in order. The Mii row opens the firmware's own editor
+/// (Service::AM::AppletId::MiiEdit) as the session, like the console's Settings > Mii.
+enum ConfigurationHomeRow : size_t { HomeSystem, HomeControllers, HomeMii, HomeFiles, HomeRowCount };
 enum FileManagerNetworkRow : size_t { FilesNetwork = 5, FilesNetworkAddress, FilesNetworkCode, FilesSources };
 inline size_t ConfigurationRowCount(const ConfigurationPanel& panel) {
     return panel.files ? FilesSources + panel.status.sources.size() : HomeRowCount;

@@ -1160,7 +1160,7 @@ private:
             zone.on_segment = options.deadzone < 0.10f ? 0 : options.deadzone < 0.15f ? 1 : 2;
             rows.push_back(std::move(zone));
             if (!panel.xbox) rows.push_back({Kind::Open, std::wstring{Tr(T::SetUpKeyboard)}});
-        } else {
+        } else if (category == HomeFiles) {
             const auto& status = view.configuration.status;
             rows.push_back({Kind::Open, std::wstring{Tr(T::AddGamesFolder)}});
             SettingsRow keys{Kind::Open, std::wstring{Tr(T::ImportKeys)}, {},
@@ -1357,8 +1357,10 @@ private:
         Type(L"Jadyx " + version_text, TypeRole::Label, Margin + kicker_width + 28, 92, 300, Palette::TextHint);
         // The categories.
         static constexpr std::array<ConfigurationIcon, HomeRowCount> icons{
-            ConfigurationIcon::Settings, ConfigurationIcon::Controller, ConfigurationIcon::Folder};
-        static constexpr std::array<T, HomeRowCount> titles{T::System, T::ControllersAndKeyboard, T::FileManager};
+            ConfigurationIcon::Settings, ConfigurationIcon::Controller, ConfigurationIcon::User,
+            ConfigurationIcon::Folder};
+        static constexpr std::array<T, HomeRowCount> titles{T::System, T::ControllersAndKeyboard,
+                                                           T::MiiEditor, T::FileManager};
         for (std::size_t i = 0; i < HomeRowCount; ++i) {
             const float x = SettingsListX, y = SettingsListTop + i * SettingsListStride;
             const float w = SettingsListWidth, h = SettingsListHeight;
@@ -1376,10 +1378,11 @@ private:
             } else if (i == HomeControllers) {
                 const auto label = ControllerLabel(view.panel.devices, view.options.controller_id);
                 summary = view.options.controller_id.empty() ? I18n::Format(T::AutomaticValue, {label}) : label;
-            } else {
+            } else if (i == HomeFiles) {
                 summary = std::wstring{Tr(status.keys_ready ? T::KeysReady : T::KeysMissing)} + L" · " +
                           I18n::Format(T::FirmwareFiles, {std::to_wstring(status.firmware_files)});
             }
+            // The Mii row opens the applet on A and carries no summary: its page says what it is.
             const unsigned color = chosen ? Palette::Text : Palette::TextSecondary;
             Icon(icons[i], x + 18, y + (h - 22) / 2, color, 22);
             // Focus only brightens the entry: its text keeps its size and place.
@@ -1412,8 +1415,10 @@ private:
                  x + w - 120, y + 140, 100, Palette::Text, 1, TextAlign::Trailing);
         }
         // The category's page.
-        static constexpr std::array<T, HomeRowCount> pages{T::SystemTitle, T::ControllersAndKeyboard, T::FileManager};
-        static constexpr std::array<T, HomeRowCount> about{T::SystemSubtitle, T::ControllerSubtitle, T::FilesSubtitle};
+        static constexpr std::array<T, HomeRowCount> pages{T::SystemTitle, T::ControllersAndKeyboard,
+                                                          T::MiiEditor, T::FileManager};
+        static constexpr std::array<T, HomeRowCount> about{T::SystemSubtitle, T::ControllerSubtitle,
+                                                          T::MiiEditorHint, T::FilesSubtitle};
         const float px = SettingsPaneX, pw = SettingsPaneWidth;
         Type(Tr(pages[category]), TypeRole::HeadlineLarge, px, 122, pw, Palette::Text);
         Type(Tr(about[category]), TypeRole::Body, px, 176, pw, Palette::TextSecondary);

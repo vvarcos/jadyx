@@ -241,6 +241,8 @@ const Catalog EnglishCatalog = MakeCatalog({
     {Text::ControllersHint, L"Pick your device and customize the controls"},
     {Text::System, L"System"},
     {Text::SystemHint, L"User name, language and region"},
+    {Text::MiiEditor, L"Mii editor"},
+    {Text::MiiEditorHint, L"Create or pick the Mii your games will show"},
     {Text::EmulatorData, L"EMULATOR DATA"},
     {Text::SettingsFirmwareFiles, L"Firmware files"},
     {Text::SettingsGameFolders, L"Game folders"},
@@ -321,6 +323,7 @@ const Catalog EnglishCatalog = MakeCatalog({
     {Text::FolderHasGameNca, L"The folder contains a game NCA, not firmware."},
     {Text::KeysMissingHeaderKey, L"prod.keys doesn't contain a valid header_key."},
     {Text::FirmwareIncomplete, L"Incomplete firmware: SystemVersion or MiiEdit is missing."},
+    {Text::MiiEditorNoFirmware, L"Your console's firmware is missing: import the firmware files in the file manager to open the Mii editor."},
 
     // System page
     {Text::SystemTitle, L"System"},
