@@ -757,7 +757,8 @@ $('logs-cancel').addEventListener('click',async()=>{
  catch{$('logs-status').textContent=logWords.failed;}
 });
 
-// Guided app update: while Jadyx offers one, the page opens on its steps. The ticket is fetched
+)HTML"
+R"HTML(// Guided app update: while Jadyx offers one, the page opens on its steps. The ticket is fetched
 // ahead of the click (it lives two minutes and serves once) so the download and the Device Portal
 // tab both start inside the click, where browsers still allow opening a tab.
 const uw=pt?{kicker:'Atualização do Jadyx',title:'Atualizar Jadyx',preparing:'Preparando o pacote verificado…',verified:'Assinatura verificada',
@@ -770,8 +771,7 @@ const uw=pt?{kicker:'Atualização do Jadyx',title:'Atualizar Jadyx',preparing:'
  busy:'Aguarde o fim das transferências ativas.',verify_in_app:'Abra Atualizações no console e verifique o pacote de novo.',failed:'Não foi possível preparar o pacote. Tente de novo.'}
 :es?{kicker:'Actualización de Jadyx',title:'Actualizar Jadyx',preparing:'Preparando el paquete verificado…',verified:'Firma verificada',
  s1:'Conecta el navegador',s1b:'Hecho: este navegador está conectado a la consola.',s2:'Descarga e instala',s2b:'Se descarga el paquete y se abre Xbox Device Portal en otra pestaña.',
-)HTML"
-R"HTML( go:'Descargar e instalar',again:'Descargar de nuevo',s3:'Termina en Device Portal',
+ go:'Descargar e instalar',again:'Descargar de nuevo',s3:'Termina en Device Portal',
  s3b:'Si avisa del certificado, elige Avanzado → Continuar. Luego Add → elige el archivo descargado → Next → Install.',portal:'Abrir Device Portal',
  keep:'No desinstales Jadyx: borraría tus partidas y ajustes. Instala encima.',skip:'Ir al contenido',
  installing:'Instalando la actualización',installingb:'Jadyx se cerró para instalarse. Cuando Device Portal termine, ábrelo en la consola: confirmará la versión nueva.',
