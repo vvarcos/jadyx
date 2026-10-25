@@ -18,7 +18,7 @@
 namespace Jadyx {
 
 struct SystemPage {
-    enum Row : std::size_t { UserName, InterfaceLanguage, GameLanguage, Region, AdultMods, PerformanceStats, PulseSessions, PlayTime, MultipleControllers, ClearCache, Updates, RowCount };
+    enum Row : std::size_t { UserName, MiiEditor, InterfaceLanguage, GameLanguage, Region, AdultMods, PerformanceStats, PulseSessions, PlayTime, MultipleControllers, ClearCache, Updates, RowCount };
 
     bool updates_open{};
     std::size_t update_row{}, update_detail{}, update_scroll{};
@@ -39,6 +39,7 @@ enum class SystemPageEffect : std::uint8_t {
     EditName,   ///< The name editor opened.
     NameDone,   ///< The editor closed with a new name in settings: save and apply.
     OpenUpdates,
+    OpenMiiEditor, ///< The firmware's own Mii applet replaces the library for a while.
     ClearCache, ///< Clear the library cache.
 };
 
@@ -85,6 +86,8 @@ inline SystemPageEffect HandleSystemInput(SystemPage& page, SystemInput input) {
     case Row::InterfaceLanguage:
         settings.ui_language = *SystemPageDetail::StepUiLanguage(settings.ui_language, back);
         return SystemPageEffect::Changed;
+    case Row::MiiEditor:
+        return input == SystemInput::Confirm ? SystemPageEffect::OpenMiiEditor : SystemPageEffect::None;
     case Row::GameLanguage:
         settings.game_language = StepChoice(settings.game_language, SelectableGameLanguages(), back);
         return SystemPageEffect::Changed;
@@ -139,6 +142,7 @@ inline I18n::Text SystemRowTitle(SystemPage::Row row) {
     switch (row) {
     case SystemPage::Updates:           return Text::UpdaterTitle;
     case SystemPage::UserName:          return Text::UserName;
+    case SystemPage::MiiEditor:         return Text::MiiEditor;
     case SystemPage::InterfaceLanguage: return Text::InterfaceLanguage;
     case SystemPage::GameLanguage:      return Text::GameLanguage;
     case SystemPage::Region:            return Text::ConsoleRegion;
@@ -156,6 +160,7 @@ inline I18n::Text SystemRowHint(SystemPage::Row row) {
     switch (row) {
     case SystemPage::Updates:           return Text::UpdaterHint;
     case SystemPage::UserName:          return Text::UserNameHint;
+    case SystemPage::MiiEditor:         return Text::MiiEditorHint;
     case SystemPage::InterfaceLanguage: return Text::InterfaceLanguageHint;
     case SystemPage::GameLanguage:      return Text::GameLanguageHint;
     case SystemPage::Region:            return Text::ConsoleRegionHint;

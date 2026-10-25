@@ -57,7 +57,7 @@ Rebased on Jadyx 0.3.8.5, one change per commit:
 
 - **The firmware Mii editor can be opened by hand.** `MiiEdit` is Nintendo's own applet, not
   emulator code, so it used to appear only when a game asked for it. There is now a **Mii editor**
-  row in Settings and a `boot.cfg applet=mii_edit` switch to launch it on its own, and the
+  row in Settings > System and a `boot.cfg applet=mii_edit` switch to launch it on its own, and the
   library gets control back when the applet closes itself. This needs the composite below to be
   visible, and it needs firmware imported with the applet inside, which the importer already
   requires.

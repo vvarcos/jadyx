@@ -1122,6 +1122,7 @@ private:
                                  std::wstring{Tr(SystemRowHint(row))}, SystemRowValue(view.system, row)};
                 switch (row) {
                 case SystemPage::UserName: item.kind = Kind::Open; break;
+                case SystemPage::MiiEditor: item.kind = Kind::Open; break;
                 case SystemPage::Updates: item.kind = Kind::Open; break;
                 case SystemPage::ClearCache: item.kind = Kind::Open; break;
                 case SystemPage::AdultMods: item.kind = Kind::Toggle; item.on = settings.show_adult_mods; break;
@@ -1357,10 +1358,9 @@ private:
         Type(L"Jadyx " + version_text, TypeRole::Label, Margin + kicker_width + 28, 92, 300, Palette::TextHint);
         // The categories.
         static constexpr std::array<ConfigurationIcon, HomeRowCount> icons{
-            ConfigurationIcon::Settings, ConfigurationIcon::Controller, ConfigurationIcon::User,
-            ConfigurationIcon::Folder};
+            ConfigurationIcon::Settings, ConfigurationIcon::Controller, ConfigurationIcon::Folder};
         static constexpr std::array<T, HomeRowCount> titles{T::System, T::ControllersAndKeyboard,
-                                                           T::MiiEditor, T::FileManager};
+                                                           T::FileManager};
         for (std::size_t i = 0; i < HomeRowCount; ++i) {
             const float x = SettingsListX, y = SettingsListTop + i * SettingsListStride;
             const float w = SettingsListWidth, h = SettingsListHeight;
@@ -1381,8 +1381,6 @@ private:
             } else if (i == HomeFiles) {
                 summary = std::wstring{Tr(status.keys_ready ? T::KeysReady : T::KeysMissing)} + L" · " +
                           I18n::Format(T::FirmwareFiles, {std::to_wstring(status.firmware_files)});
-            } else if (i == HomeMii) {
-                summary = Tr(T::MiiEditorHint);
             }
             const unsigned color = chosen ? Palette::Text : Palette::TextSecondary;
             Icon(icons[i], x + 18, y + (h - 22) / 2, color, 22);
@@ -1417,9 +1415,9 @@ private:
         }
         // The category's page.
         static constexpr std::array<T, HomeRowCount> pages{T::SystemTitle, T::ControllersAndKeyboard,
-                                                          T::MiiEditor, T::FileManager};
+                                                          T::FileManager};
         static constexpr std::array<T, HomeRowCount> about{T::SystemSubtitle, T::ControllerSubtitle,
-                                                          T::MiiEditorHint, T::FilesSubtitle};
+                                                          T::FilesSubtitle};
         const float px = SettingsPaneX, pw = SettingsPaneWidth;
         Type(Tr(pages[category]), TypeRole::HeadlineLarge, px, 122, pw, Palette::Text);
         Type(Tr(about[category]), TypeRole::Body, px, 176, pw, Palette::TextSecondary);
