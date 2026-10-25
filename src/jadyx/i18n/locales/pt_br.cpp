@@ -242,7 +242,7 @@ const Catalog PortugueseBrazilCatalog = MakeCatalog({
     {Text::System, L"Sistema"},
     {Text::SystemHint, L"Nome de usuário, idioma e região"},
     {Text::MiiEditor, L"Editor de Mii"},
-    {Text::MiiEditorHint, L"Crie ou escolha o Mii com que seus jogos vão te ver"},
+    {Text::MiiEditorHint, L"Crie o seu Mii ou edite um disponível."},
     {Text::EmulatorData, L"DADOS DO EMULADOR"},
     {Text::SettingsFirmwareFiles, L"Arquivos de firmware"},
     {Text::SettingsGameFolders, L"Pastas de jogos"},

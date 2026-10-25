@@ -1381,8 +1381,9 @@ private:
             } else if (i == HomeFiles) {
                 summary = std::wstring{Tr(status.keys_ready ? T::KeysReady : T::KeysMissing)} + L" · " +
                           I18n::Format(T::FirmwareFiles, {std::to_wstring(status.firmware_files)});
+            } else if (i == HomeMii) {
+                summary = Tr(T::MiiEditorHint);
             }
-            // The Mii row opens the applet on A and carries no summary: its page says what it is.
             const unsigned color = chosen ? Palette::Text : Palette::TextSecondary;
             Icon(icons[i], x + 18, y + (h - 22) / 2, color, 22);
             // Focus only brightens the entry: its text keeps its size and place.
