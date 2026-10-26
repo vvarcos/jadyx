@@ -12,6 +12,13 @@ REM The three-step dance in docs/xbox/uwp_build.md is easy to get subtly wrong a
 REM get a desktop, non-Store-CRT build that compiles and then behaves oddly on-console), so this
 REM script does it in one place and verifies the result before handing control over.
 
+REM UTF-8 console code page. CMake learns the /showIncludes prefix from this shell; with a localized
+REM MSVC (pt-BR, es-*) under the OEM code page it writes that prefix as raw CP850 bytes, ninja reads
+REM the manifest as UTF-8 and never matches it, and the result fails SILENTLY the other way: no
+REM header dependencies are recorded, so editing a header rebuilds nothing (a stale registry.cpp
+REM against a changed localization.h then fails the link). UTF-8 keeps both sides identical.
+chcp 65001 >nul
+
 REM vswhere must be on PATH: vcvarsall shells out to it bare, and without it quietly falls back to
 REM a desktop x64 environment with no Store CRT.
 set "PATH=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer;%PATH%"
