@@ -136,6 +136,7 @@ std::optional<std::string> ShowGameLibrary(void* core_window, unsigned width, un
     const LibraryCache cache{DefaultLibraryCacheDirectory()};
     bool return_to_configuration = false;
     unsigned picker_kind = 0; // 0 games, 1 keys, 2 firmware
+    unsigned import_kind = 0; // The kind the running storage import was started with.
     std::future<FileSetupStatus> setup_future;
     std::jthread setup_worker;
     FileImportProgress import_progress;
@@ -201,6 +202,18 @@ std::optional<std::string> ShowGameLibrary(void* core_window, unsigned width, un
                       Options = 2048, PreviousTab = 4096, NextTab = 8192, Pin = 16384, PreviousManagerTab = 32768, NextManagerTab = 65536 };
     using winrt::Windows::Storage::StorageFolder;
     winrt::Windows::Foundation::IAsyncOperation<StorageFolder> picker{nullptr};
+    // One entry point for the three import sources: the Files rows use it, and a firmware import
+    // that went in without keys chains straight into the keys one.
+    const auto open_system_picker = [&](unsigned kind) {
+        picker_kind = kind;
+        try {
+            winrt::Windows::Storage::Pickers::FolderPicker folder_picker;
+            folder_picker.SuggestedStartLocation(winrt::Windows::Storage::Pickers::PickerLocationId::ComputerFolder);
+            folder_picker.FileTypeFilter().Append(L"*");
+            picker = folder_picker.PickSingleFolderAsync();
+            configuration.notice = Tr(kind == 0 ? T::PickGamesFolder : kind == 1 ? T::PickKeysFolder : T::PickFirmwareFolder);
+        } catch (...) { configuration.notice = Tr(T::PickerOpenFailed); }
+    };
     std::future<std::string> validation;
     std::jthread validation_worker;
     std::string selected_path;
@@ -1186,6 +1199,7 @@ std::optional<std::string> ShowGameLibrary(void* core_window, unsigned width, un
                                 return ImportSystemFiles(folder, kind == 1 ? FileImport::Keys : FileImport::Firmware, import_progress, stop);
                             }};
                         storage_job = StorageJob::Files;
+                        import_kind = picker_kind;
                         import_future = task.get_future();
                         import_worker = std::jthread(std::move(task));
                     } else { configuration.notice = Tr(T::SelectionCancelled); dirty = true; }
@@ -1235,8 +1249,10 @@ std::optional<std::string> ShowGameLibrary(void* core_window, unsigned width, un
             }
             if (import_future.wait_for(std::chrono::seconds{0}) == std::future_status::ready) {
                 const bool removal = storage_job == StorageJob::Removal || storage_job == StorageJob::PortalRemoval;
+                bool imported = false;
                 try {
                     const auto error = import_future.get();
+                    imported = error.empty();
                     if (removal) {
                         const bool content = storage_job == StorageJob::PortalRemoval &&
                             !network_portal.Status().removal.content.empty();
@@ -1258,6 +1274,12 @@ std::optional<std::string> ShowGameLibrary(void* core_window, unsigned width, un
                 metadata = {};
                 refresh_setup();
                 start_scan();
+                // Firmware went in without keys: open the keys import right away, so the player
+                // does not have to find the other row to make the firmware usable.
+                if (imported && !removal && import_kind == 2 && !HasUsableHeaderKey()) {
+                    open_system_picker(1);
+                    configuration.notice = Tr(T::ImportFirmwareNeedsKeys);
+                }
                 dirty = true;
             }
         }
@@ -1921,15 +1943,7 @@ std::optional<std::string> ShowGameLibrary(void* core_window, unsigned width, un
                         configuration.selected = 0; refresh_setup(); start_scan();
                     } catch (...) { configuration.notice = Tr(T::FolderRemoveFailed); }
                 } else {
-                    picker_kind = static_cast<unsigned>(configuration.selected);
-                    try {
-                        winrt::Windows::Storage::Pickers::FolderPicker folder_picker;
-                        folder_picker.SuggestedStartLocation(winrt::Windows::Storage::Pickers::PickerLocationId::ComputerFolder);
-                        folder_picker.FileTypeFilter().Append(L"*");
-                        picker = folder_picker.PickSingleFolderAsync();
-                        configuration.notice = Tr(picker_kind == 0 ? T::PickGamesFolder :
-                                                  picker_kind == 1 ? T::PickKeysFolder : T::PickFirmwareFolder);
-                    } catch (...) { configuration.notice = Tr(T::PickerOpenFailed); }
+                    open_system_picker(static_cast<unsigned>(configuration.selected));
                 }
                 dirty = true;
             }

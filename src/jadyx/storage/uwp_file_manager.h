@@ -58,6 +58,5 @@ FileSetupStatus ReadFileSetupStatus();
 void ForgetGameFolder(std::string_view token);
 std::string ImportSystemFiles(const winrt::Windows::Storage::StorageFolder& source,
                              FileImport kind, FileImportProgress& progress, std::stop_token stop);
-bool HasUsableHeaderKey();
 bool RunFileManagerGate(const std::function<void(std::string)>& diagnostic);
 } // namespace Jadyx

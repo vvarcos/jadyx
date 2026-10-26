@@ -86,6 +86,7 @@ struct FirmwareInfo {
     std::string display;
     int generation{-1};
     std::set<std::pair<int,int>> areas;
+    bool unverified{}; ///< Accepted without keys: nothing inside the NCAs could be read.
 };
 // The bundled libarchive intentionally excludes platform filename openers.
 // Supply bounded seekable input, as the mod importer already does.
@@ -105,6 +106,9 @@ struct ZipSource {
 };
 FirmwareInfo InspectFirmware(const fs::path& folder,bool strict,SystemProgress progress,std::stop_token stop) {
     FirmwareInfo info;bool system=false,mii=false,update=false;unsigned count{};
+    // Without a header key every NCA fails to open, which is not a fault of the files the player
+    // picked: the firmware is installed unverified and checked once the keys are imported.
+    const bool can_verify=HasUsableHeaderKey();
     std::set<u64> outside,listed;
     std::map<u64,std::vector<fs::path>> game_files;
     if(!fs::exists(folder)){Require(!strict,"firmware_incomplete");return info;}
@@ -113,6 +117,7 @@ FirmwareInfo InspectFirmware(const fs::path& folder,bool strict,SystemProgress p
         CheckStop(stop);
         if(!file.is_regular_file()||Lower(Utf8(file.path().extension()))!=".nca")continue;
         Require(++count<=4096,"firmware_limit");
+        if(!can_verify){if(progress)progress(count,0);continue;}
         const auto raw=vfs.OpenFile(Utf8(file.path()),FileSys::OpenMode::Read);
         if(!raw||raw->GetSize()<0xC00){Require(!strict,"firmware_incomplete");continue;}
         FileSys::NcaReader header;
@@ -146,6 +151,13 @@ FirmwareInfo InspectFirmware(const fs::path& folder,bool strict,SystemProgress p
         }
         mii|=nca.GetTitleId()==0x0100000000001009ULL&&nca.GetType()==FileSys::NCAContentType::Program;
         if(progress)progress(count,0);
+    }
+    if(!can_verify) {
+        // Nothing inside an NCA could be read, so there is no title list to trim game files with
+        // and no SystemVersion/MiiEdit to require: the stage is published exactly as picked, and
+        // the review tells the player it went in unverified.
+        Require(!strict||count>0,"firmware_incomplete");
+        info.unverified=true;return info;
     }
     // Players keep their dumps together, so a game NCA often sits next to the firmware. A staged
     // import is a copy: leaving those files out installs the firmware and loses nothing, instead
@@ -272,7 +284,8 @@ std::unique_ptr<PreparedSystemImport> InspectSystemStage(fs::path stage,FileImpo
         const auto incoming=InspectFirmware(stage,true,progress,stop);
         review.incoming_firmware=incoming.display;review.required_generation=incoming.generation;
         review.incoming_generation=review.installed_generation;
-        if(!installed.display.empty()&&incoming.version<installed.version)review.warnings.push_back("firmware_downgrade");
+        if(incoming.unverified)review.warnings.push_back("firmware_unverified");
+        else if(!installed.display.empty()&&incoming.version<installed.version)review.warnings.push_back("firmware_downgrade");
     }else{
         review.incoming_firmware=installed.display;
         const auto destination=SystemDestination(kind);
@@ -325,11 +338,18 @@ std::unique_ptr<PreparedSystemImport> InspectSystemStage(fs::path stage,FileImpo
 std::wstring DescribeSystemReview(const SystemReview& review) {
     using namespace I18n;
     const auto wide=[](const std::string& s){return std::wstring{winrt::to_hstring(s)};};
-    auto result=Format(Text::SystemImportVersions,{wide(review.installed_firmware.empty()?"—":review.installed_firmware),
+    const bool unverified=std::find(review.warnings.begin(),review.warnings.end(),"firmware_unverified")!=review.warnings.end();
+    std::vector<std::wstring> lines;
+    // Without keys neither side has a version to compare: the dashes only puzzled the player, so
+    // the panel shows the plain explanation instead of a table with no numbers in it.
+    if(!unverified)lines.push_back(Format(Text::SystemImportVersions,{wide(review.installed_firmware.empty()?"—":review.installed_firmware),
         wide(review.incoming_firmware.empty()?"—":review.incoming_firmware),review.installed_generation<0?L"—":std::to_wstring(review.installed_generation),
-        review.incoming_generation<0?L"—":std::to_wstring(review.incoming_generation)});
-    for(const auto& warning:review.warnings){result+=L"\n";result+=Tr(warning=="firmware_downgrade"?Text::SystemFirmwareDowngrade:
-        warning=="keys_downgrade"?Text::SystemKeysDowngrade:warning=="keys_firmware_old"?Text::SystemKeysFirmwareWarning:Text::SystemVersionUnknown);}
+        review.incoming_generation<0?L"—":std::to_wstring(review.incoming_generation)}));
+    for(const auto& warning:review.warnings)lines.push_back(std::wstring{Tr(warning=="firmware_downgrade"?Text::SystemFirmwareDowngrade:
+        warning=="keys_downgrade"?Text::SystemKeysDowngrade:warning=="keys_firmware_old"?Text::SystemKeysFirmwareWarning:
+        warning=="firmware_unverified"?Text::SystemFirmwareUnverified:Text::SystemVersionUnknown)});
+    std::wstring result;
+    for(const auto& line:lines){if(!result.empty())result+=L"\n";result+=line;}
     return result;
 }
 SystemImportBackend DefaultSystemImportBackend(){return {SystemDestination,CreateSystemStage,RemoveSystemStage,ExtractSystemZip,InspectSystemStage};}
