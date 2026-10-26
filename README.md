@@ -21,7 +21,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 ## What this fork adds
 
 Rebased on Jadyx 0.3.8.5, one change per commit:
-- **Mii editor openable by hand.** `MiiEdit` is Nintendo's applet; now a **Mii editor** row in Settings + `boot.cfg applet=mii_edit` switch launches it standalone; library regains control on close. Needs composite below + firmware imported with applet.
+- **Mii editor openable by hand.** `MiiEdit` is Nintendo's applet; now a **Mii editor** row in Settings > System + `boot.cfg applet=mii_edit` switch launches it standalone; library regains control on close. Needs composite below + firmware imported with applet.
 - **Whole layer stack composited.** Switch display can deliver several layers (game + applet); only bottom was presented. Now drawn back-to-front with per-blend-mode pipeline.
 - **Firmware import tolerates game files.** Mixed folders no longer refused; game NCAs dropped, firmware installs. Picked files never modified (staged copy drops them).
 

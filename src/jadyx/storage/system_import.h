@@ -12,6 +12,9 @@
 
 namespace Jadyx {
 enum class FileImport { Keys, Firmware };
+// Whether the installed keys carry a real header key. Without one no NCA can be opened, so a
+// firmware import cannot be verified: it is still accepted, and stays marked unverified.
+bool HasUsableHeaderKey();
 struct SystemReview {
     std::string installed_firmware, incoming_firmware;
     int installed_generation{-1}, incoming_generation{-1}, required_generation{-1};

@@ -117,7 +117,8 @@ std::string ImportSystemFiles(const StorageFolder& source, FileImport kind,
     progress.decision=0;progress.confirmation=false;
     try {
         const bool keys=kind==FileImport::Keys;
-        if(!keys&&!HasUsableHeaderKey())return I18n::ToUtf8(I18n::Tr(I18n::Text::KeysFirst));
+        // Firmware no longer waits for the keys: without them it goes in unverified (the review
+        // says so) instead of being refused, so the player can import in any order.
         stage_path=CreateSystemStage(kind);
         auto stage=StorageFolder::GetFolderFromPathAsync(BrokerPath(stage_path)).get();
         std::vector<StorageFile> files,archives;

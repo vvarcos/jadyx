@@ -136,6 +136,7 @@ std::optional<std::string> ShowGameLibrary(void* core_window, unsigned width, un
     const LibraryCache cache{DefaultLibraryCacheDirectory()};
     bool return_to_configuration = false;
     unsigned picker_kind = 0; // 0 games, 1 keys, 2 firmware
+    unsigned import_kind = 0; // The kind the running storage import was started with.
     std::future<FileSetupStatus> setup_future;
     std::jthread setup_worker;
     FileImportProgress import_progress;
@@ -201,6 +202,18 @@ std::optional<std::string> ShowGameLibrary(void* core_window, unsigned width, un
                       Options = 2048, PreviousTab = 4096, NextTab = 8192, Pin = 16384, PreviousManagerTab = 32768, NextManagerTab = 65536 };
     using winrt::Windows::Storage::StorageFolder;
     winrt::Windows::Foundation::IAsyncOperation<StorageFolder> picker{nullptr};
+    // One entry point for the three import sources: the Files rows use it, and a firmware import
+    // that went in without keys chains straight into the keys one.
+    const auto open_system_picker = [&](unsigned kind) {
+        picker_kind = kind;
+        try {
+            winrt::Windows::Storage::Pickers::FolderPicker folder_picker;
+            folder_picker.SuggestedStartLocation(winrt::Windows::Storage::Pickers::PickerLocationId::ComputerFolder);
+            folder_picker.FileTypeFilter().Append(L"*");
+            picker = folder_picker.PickSingleFolderAsync();
+            configuration.notice = Tr(kind == 0 ? T::PickGamesFolder : kind == 1 ? T::PickKeysFolder : T::PickFirmwareFolder);
+        } catch (...) { configuration.notice = Tr(T::PickerOpenFailed); }
+    };
     std::future<std::string> validation;
     std::jthread validation_worker;
     std::string selected_path;
@@ -722,6 +735,9 @@ std::optional<std::string> ShowGameLibrary(void* core_window, unsigned width, un
         future = task.get_future();
         scanner = std::jthread(std::move(task));
     };
+    // Set when the System page's Mii row confirms: the firmware's applet replaces the library, so
+    // the loop below hands it to the boot instead of drawing the next frame.
+    bool open_mii_editor = false;
     // Saves and applies the System page; the interface switches language on the next frame.
     auto apply_system_effect = [&](SystemPageEffect effect, std::chrono::steady_clock::time_point now) {
         switch (effect) {
@@ -741,6 +757,8 @@ std::optional<std::string> ShowGameLibrary(void* core_window, unsigned width, un
         }
         case SystemPageEffect::OpenUpdates:
             system_page.updates_open = true; system_page.update_row = 0; break;
+        case SystemPageEffect::OpenMiiEditor:
+            open_mii_editor = true; break;
         case SystemPageEffect::ClearCache: {
             reload_metadata();
             canvas->InvalidateCovers();
@@ -1181,6 +1199,7 @@ std::optional<std::string> ShowGameLibrary(void* core_window, unsigned width, un
                                 return ImportSystemFiles(folder, kind == 1 ? FileImport::Keys : FileImport::Firmware, import_progress, stop);
                             }};
                         storage_job = StorageJob::Files;
+                        import_kind = picker_kind;
                         import_future = task.get_future();
                         import_worker = std::jthread(std::move(task));
                     } else { configuration.notice = Tr(T::SelectionCancelled); dirty = true; }
@@ -1230,8 +1249,10 @@ std::optional<std::string> ShowGameLibrary(void* core_window, unsigned width, un
             }
             if (import_future.wait_for(std::chrono::seconds{0}) == std::future_status::ready) {
                 const bool removal = storage_job == StorageJob::Removal || storage_job == StorageJob::PortalRemoval;
+                bool imported = false;
                 try {
                     const auto error = import_future.get();
+                    imported = error.empty();
                     if (removal) {
                         const bool content = storage_job == StorageJob::PortalRemoval &&
                             !network_portal.Status().removal.content.empty();
@@ -1253,6 +1274,12 @@ std::optional<std::string> ShowGameLibrary(void* core_window, unsigned width, un
                 metadata = {};
                 refresh_setup();
                 start_scan();
+                // Firmware went in without keys: open the keys import right away, so the player
+                // does not have to find the other row to make the firmware usable.
+                if (imported && !removal && import_kind == 2 && !HasUsableHeaderKey()) {
+                    open_system_picker(1);
+                    configuration.notice = Tr(T::ImportFirmwareNeedsKeys);
+                }
                 dirty = true;
             }
         }
@@ -1388,11 +1415,28 @@ std::optional<std::string> ShowGameLibrary(void* core_window, unsigned width, un
                 send(Up, SystemInput::Up);
                 send(Down, SystemInput::Down);
                 const bool opens = system_page.selected == SystemPage::UserName ||
+                                   system_page.selected == SystemPage::MiiEditor ||
                                    system_page.selected == SystemPage::ClearCache || system_page.selected == SystemPage::Updates;
                 send(Left, opens ? SystemInput::Back : SystemInput::Left);
                 send(Right, SystemInput::Right);
                 send(Play, SystemInput::Confirm);
                 send(Quit, SystemInput::Back);
+                if (open_mii_editor) {
+                    // The firmware's own Mii editor (Service::AM::AppletId::MiiEdit), as the
+                    // console's Settings > Mii. It needs the keys to read the NCA and a firmware
+                    // whose files carry it, so both are checked before leaving the library.
+                    open_mii_editor = false;
+                    if (!configuration.status.keys_ready) {
+                        system_page.notice = Tr(T::KeysFirst);
+                        system_notice_until = now + std::chrono::seconds{3};
+                    } else if (configuration.status.firmware_files == 0) {
+                        system_page.notice = Tr(T::MiiEditorNoFirmware);
+                        system_notice_until = now + std::chrono::seconds{3};
+                    } else {
+                        return std::string{MiiEditorRequest};
+                    }
+                    dirty = true;
+                }
                 if (!system_page.open) configuration.selected = HomeSystem;
             }
             actions = 0;
@@ -1840,15 +1884,6 @@ std::optional<std::string> ShowGameLibrary(void* core_window, unsigned width, un
                     switch (configuration.selected) {
                     case HomeFiles: configuration.files = true; configuration.selected = 0; break;
                     case HomeControllers: settings = true; return_to_configuration = true; setting_row = 0; break;
-                    case HomeMii:
-                        // The firmware's own Mii editor, as the console's Settings > Mii. It needs
-                        // the keys to read the NCA and the firmware: the file manager refuses an
-                        // import without MiiEdit, so an imported firmware has it.
-                        if (configuration.status.firmware_files == 0)
-                            configuration.notice = Tr(T::MiiEditorNoFirmware);
-                        else if (!configuration.status.keys_ready) configuration.notice = Tr(T::KeysFirst);
-                        else return std::string{MiiEditorRequest};
-                        break;
                     default:
                         system_page.open = true;
                         system_page.selected = SystemPage::UserName;
@@ -1908,15 +1943,7 @@ std::optional<std::string> ShowGameLibrary(void* core_window, unsigned width, un
                         configuration.selected = 0; refresh_setup(); start_scan();
                     } catch (...) { configuration.notice = Tr(T::FolderRemoveFailed); }
                 } else {
-                    picker_kind = static_cast<unsigned>(configuration.selected);
-                    try {
-                        winrt::Windows::Storage::Pickers::FolderPicker folder_picker;
-                        folder_picker.SuggestedStartLocation(winrt::Windows::Storage::Pickers::PickerLocationId::ComputerFolder);
-                        folder_picker.FileTypeFilter().Append(L"*");
-                        picker = folder_picker.PickSingleFolderAsync();
-                        configuration.notice = Tr(picker_kind == 0 ? T::PickGamesFolder :
-                                                  picker_kind == 1 ? T::PickKeysFolder : T::PickFirmwareFolder);
-                    } catch (...) { configuration.notice = Tr(T::PickerOpenFailed); }
+                    open_system_picker(static_cast<unsigned>(configuration.selected));
                 }
                 dirty = true;
             }

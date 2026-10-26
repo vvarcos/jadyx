@@ -35,9 +35,9 @@ struct ConfigurationPanel {
     bool confirm_import{};
     std::wstring review_text;
 };
-/// Rows of the settings home, in order. The Mii row opens the firmware's own editor
-/// (Service::AM::AppletId::MiiEdit) as the session, like the console's Settings > Mii.
-enum ConfigurationHomeRow : size_t { HomeSystem, HomeControllers, HomeMii, HomeFiles, HomeRowCount };
+/// Rows of the settings home, in order. The Mii editor is not a category: it opened the firmware's
+/// own applet (Service::AM::AppletId::MiiEdit) from here and now sits in Settings > System.
+enum ConfigurationHomeRow : size_t { HomeSystem, HomeControllers, HomeFiles, HomeRowCount };
 enum FileManagerNetworkRow : size_t { FilesNetwork = 5, FilesNetworkAddress, FilesNetworkCode, FilesSources };
 inline size_t ConfigurationRowCount(const ConfigurationPanel& panel) {
     return panel.files ? FilesSources + panel.status.sources.size() : HomeRowCount;
@@ -58,6 +58,5 @@ FileSetupStatus ReadFileSetupStatus();
 void ForgetGameFolder(std::string_view token);
 std::string ImportSystemFiles(const winrt::Windows::Storage::StorageFolder& source,
                              FileImport kind, FileImportProgress& progress, std::stop_token stop);
-bool HasUsableHeaderKey();
 bool RunFileManagerGate(const std::function<void(std::string)>& diagnostic);
 } // namespace Jadyx
