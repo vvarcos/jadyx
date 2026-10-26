@@ -1844,9 +1844,9 @@ std::optional<std::string> ShowGameLibrary(void* core_window, unsigned width, un
                         // The firmware's own Mii editor, as the console's Settings > Mii. It needs
                         // the keys to read the NCA and the firmware: the file manager refuses an
                         // import without MiiEdit, so an imported firmware has it.
-                        if (!configuration.status.keys_ready) configuration.notice = Tr(T::KeysFirst);
-                        else if (configuration.status.firmware_files == 0)
+                        if (configuration.status.firmware_files == 0)
                             configuration.notice = Tr(T::MiiEditorNoFirmware);
+                        else if (!configuration.status.keys_ready) configuration.notice = Tr(T::KeysFirst);
                         else return std::string{MiiEditorRequest};
                         break;
                     default:
