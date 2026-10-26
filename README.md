@@ -5,7 +5,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 <p align="center"><img src="dist/uwp/Assets/JadyxLogo.png" alt="Jadyx logo" width="128"></p>
 <h1 align="center">Jadyx</h1>
-<p align="center">Nintendo Switch emulator for <b>Xbox Series X|S (Dev Mode)</b>, based on Eden, with a <b>native Direct3D 12 renderer</b>.</p>
+<p align="center">Nintendo Switch emulator for <b>Xbox Series X|S (Dev Mode)</b> and <b>Windows PC</b>, based on Eden, with a <b>native Direct3D 12 renderer</b>.</p>
 <p align="center"><a href="https://github.com/vvarcos/jadyx/releases/latest"><b>Download</b></a> · <a href="https://discord.gg/3BhyyXGxpd"><b>Discord</b></a> · <a href="https://github.com/vvarcos/jadyx/issues/new/choose"><b>Report bug</b></a></p>
 <p align="center"><img src="docs/assets/screens/home.jpg" alt="home" width="900"><br><sub>Home screen. Games shown are made-up placeholders with original artwork.</sub></p>
 <p align="center"><img src="docs/assets/screens/in-game-menu.png" alt="menu" width="900"><br><sub>In-game quick menu (hold View+Menu).</sub></p>
@@ -107,7 +107,7 @@ Fastmem impossible in Xbox sandbox (W^X); every guest access uses page table. Th
 
 ## Architecture
 
-One UWP executable; same package runs on PC (all changes tested there first).
+One UWP executable; the same package runs on **Xbox Series X|S** and on **PC (Windows)** — changes are tried on PC first.
 
 ```mermaid
 flowchart TB

@@ -1,6 +1,6 @@
 # Xbox Series X|S: documentación del fork
 
-Port UWP de Eden con backend Direct3D 12, compartido con las pruebas en PC.
+Port UWP de Eden con backend Direct3D 12 para Xbox Series X|S y PC (Windows), compartido con las pruebas en PC.
 La rama de trabajo es `xbox`; las reglas del proyecto están en [AGENTS.md](../../AGENTS.md).
 
 ## Arranque y despliegue

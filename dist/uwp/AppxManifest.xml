@@ -53,7 +53,7 @@
     <Application Id="App" Executable="jadyx.exe" EntryPoint="Jadyx.App">
       <uap:VisualElements
           DisplayName="Jadyx"
-          Description="Jadyx: a Nintendo Switch emulator for Xbox Series X|S Dev Mode, based on Eden."
+          Description="Jadyx: a Nintendo Switch emulator for Xbox Series X|S Dev Mode and Windows PC, based on Eden."
           BackgroundColor="#1C1C1C"
           Square150x150Logo="Assets\Square150x150Logo.png"
           Square44x44Logo="Assets\Square44x44Logo.png">
