@@ -144,9 +144,13 @@ void RasterizerD3D12::Draw(bool is_indexed, u32 instance_count) {
     DrawMetrics::ScopedDrawTimer draw_timer;
     SCOPE_EXIT {
         FlushIfUploadHeavy();
+        const VideoCore::Perf::ScopedNsTimer timer{VideoCore::Perf::Counter::DrawTickWorkNs};
         gpu.TickWork();
     };
-    gpu_memory->FlushCaching();
+    {
+        const VideoCore::Perf::ScopedNsTimer timer{VideoCore::Perf::Counter::DrawFlushCacheNs};
+        gpu_memory->FlushCaching();
+    }
     ApplyPendingStateInvalidation();
     if (CullsEveryPrimitive()) {
         if (full) VideoCommon::FullCapture::Event("draw_culled");
@@ -159,7 +163,11 @@ void RasterizerD3D12::Draw(bool is_indexed, u32 instance_count) {
     }
 
     hunt.PipelineStart();
-    GraphicsPipeline* const pipeline = pipeline_cache.CurrentGraphicsPipeline();
+    GraphicsPipeline* pipeline{};
+    {
+        const VideoCore::Perf::ScopedNsTimer timer{VideoCore::Perf::Counter::DrawPipelineLookupNs};
+        pipeline = pipeline_cache.CurrentGraphicsPipeline();
+    }
     hunt.PipelineEnd();
     if (!pipeline) {
         if (full) VideoCommon::FullCapture::Event("draw_no_pipeline");
@@ -226,7 +234,11 @@ void RasterizerD3D12::Draw(bool is_indexed, u32 instance_count) {
     }
     VideoCore::Perf::ScopedNsTimer record_timer{VideoCore::Perf::Counter::DrawRecordNs};
     const Framebuffer* const framebuffer = texture_cache.GetFramebuffer();
-    framebuffer->PrepareAttachments(scheduler, bindings.depth_sampled);
+    {
+        const VideoCore::Perf::ScopedNsTimer timer{
+            VideoCore::Perf::Counter::DrawPrepareAttachmentsNs};
+        framebuffer->PrepareAttachments(scheduler, bindings.depth_sampled);
+    }
     hunt.Target(framebuffer);
 
     const auto& draw_state = maxwell3d->draw_manager.draw_state;
@@ -341,10 +353,14 @@ void RasterizerD3D12::RecordDraw(const GraphicsPipeline& pipeline,
                                  Maxwell::PrimitiveTopology topology) {
     const auto compatible = texture_runtime.PrepareCompatibleDrawTargets(
         framebuffer, pipeline.BoundColorTargets());
-    BindDrawState(pipeline, bindings, framebuffer, params, topology, compatible);
+    {
+        const VideoCore::Perf::ScopedNsTimer timer{VideoCore::Perf::Counter::DrawBindStateNs};
+        BindDrawState(pipeline, bindings, framebuffer, params, topology, compatible);
+    }
     CommandStream* const cmd = scheduler.CommandList();
     VideoCore::Perf::Add(VideoCore::Perf::Counter::Draws, 1);
     {
+        const VideoCore::Perf::ScopedNsTimer timer{VideoCore::Perf::Counter::DrawPredicateNs};
         const ConditionalRendering::Scope predicate{conditional_rendering, cmd};
         if (params.is_indexed) {
             cmd->DrawIndexedInstanced(params.num_vertices, params.num_instances, params.first_index,
@@ -354,7 +370,10 @@ void RasterizerD3D12::RecordDraw(const GraphicsPipeline& pipeline,
                                params.base_instance);
         }
     }
-    texture_runtime.FinishCompatibleDrawTargets(framebuffer);
+    {
+        const VideoCore::Perf::ScopedNsTimer timer{VideoCore::Perf::Counter::DrawFinishTargetsNs};
+        texture_runtime.FinishCompatibleDrawTargets(framebuffer);
+    }
 }
 
 void RasterizerD3D12::DispatchCompute() {
@@ -504,10 +523,10 @@ void RasterizerD3D12::DispatchCompute() {
     }
 
     CommandStream* const cmd = scheduler.CommandList();
-    if (!command_state.heaps_bound) {
+    if (!CommandState().heaps_bound) {
         ID3D12DescriptorHeap* const heaps[] = {descriptor_ring.Heap(), sampler_heap.Heap()};
         cmd->SetDescriptorHeaps(2, heaps);
-        command_state.heaps_bound = true;
+        CommandState().heaps_bound = true;
     }
     cmd->SetComputeRootSignature(layout.Handle());
     scheduler.SetPipelineState(pipeline->Handle());

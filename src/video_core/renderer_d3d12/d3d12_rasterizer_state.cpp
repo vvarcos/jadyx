@@ -71,15 +71,15 @@ void RasterizerD3D12::BindDrawState(const GraphicsPipeline& pipeline,
     const PipelineLayout& layout = pipeline.Layout();
     CommandStream* const cmd = scheduler.CommandList();
 
-    if (!command_state.heaps_bound) {
+    if (!CommandState().heaps_bound) {
         ID3D12DescriptorHeap* const heaps[] = {descriptor_ring.Heap(), sampler_heap.Heap()};
         cmd->SetDescriptorHeaps(2, heaps);
-        command_state.heaps_bound = true;
+        CommandState().heaps_bound = true;
     }
-    if (!command_state.valid || command_state.graphics_root != layout.Handle()) {
+    if (!CommandState().valid || CommandState().graphics_root != layout.Handle()) {
         cmd->SetGraphicsRootSignature(layout.Handle());
-        command_state.graphics_root = layout.Handle();
-        command_state.root_args = {};
+        CommandState().graphics_root = layout.Handle();
+        CommandState().root_args = {};
     }
     scheduler.SetPipelineState(pipeline.Handle());
     MarkGpuCommands(cmd, "draw VS/PS", pipeline.Key().unique_hashes[1],
@@ -118,11 +118,11 @@ void RasterizerD3D12::BindDrawState(const GraphicsPipeline& pipeline,
                 static_cast<void*>(resource), static_cast<u32>(framebuffer.ColorFormat(index))));
         }
     }
-    bool targets_changed = !command_state.valid ||
-                           command_state.num_color_targets != color_targets.size() ||
-                           command_state.depth_target != depth.ptr;
+    bool targets_changed = !CommandState().valid ||
+                           CommandState().num_color_targets != color_targets.size() ||
+                           CommandState().depth_target != depth.ptr;
     for (size_t index = 0; index < color_targets.size(); ++index) {
-        targets_changed |= command_state.color_targets[index] != color_targets[index].ptr;
+        targets_changed |= CommandState().color_targets[index] != color_targets[index].ptr;
     }
     if (targets_changed) {
         // Diagnose overlapping guest attachments before the debug queue loses their context.
@@ -161,18 +161,18 @@ void RasterizerD3D12::BindDrawState(const GraphicsPipeline& pipeline,
         cmd->OMSetRenderTargets(static_cast<UINT>(color_targets.size()),
                                 color_targets.empty() ? nullptr : color_targets.data(), FALSE,
                                 depth.ptr ? &depth : nullptr);
-        command_state.num_color_targets = static_cast<u32>(color_targets.size());
-        command_state.color_targets.fill(0);
+        CommandState().num_color_targets = static_cast<u32>(color_targets.size());
+        CommandState().color_targets.fill(0);
         for (size_t index = 0; index < color_targets.size(); ++index) {
-            command_state.color_targets[index] = color_targets[index].ptr;
+            CommandState().color_targets[index] = color_targets[index].ptr;
         }
-        command_state.depth_target = depth.ptr;
+        CommandState().depth_target = depth.ptr;
     }
 
-    if (!command_state.valid || state_tracker.TouchViewports()) {
-        command_state.viewport = UpdateViewports(cmd);
+    if (!CommandState().valid || state_tracker.TouchViewports()) {
+        CommandState().viewport = UpdateViewports(cmd);
     }
-    if (!command_state.valid || state_tracker.TouchScissors()) {
+    if (!CommandState().valid || state_tracker.TouchScissors()) {
         UpdateScissors(cmd);
     }
     // Constant-alpha factors in the color equation read the constant's RGB on D3D12.
@@ -182,10 +182,10 @@ void RasterizerD3D12::BindDrawState(const GraphicsPipeline& pipeline,
                          regs.blend_color.a}
             : std::array{regs.blend_color.r, regs.blend_color.g, regs.blend_color.b,
                          regs.blend_color.a};
-    if (!command_state.valid || state_tracker.TouchBlendConstants() ||
-        command_state.blend_factor != blend_factor) {
+    if (!CommandState().valid || state_tracker.TouchBlendConstants() ||
+        CommandState().blend_factor != blend_factor) {
         cmd->OMSetBlendFactor(blend_factor.data());
-        command_state.blend_factor = blend_factor;
+        CommandState().blend_factor = blend_factor;
     }
     if (pipeline.DepthBounds()) {
         // D3D12 requires 0 <= min <= max <= 1; a NaN bound opens that side of the range.
@@ -195,16 +195,16 @@ void RasterizerD3D12::BindDrawState(const GraphicsPipeline& pipeline,
         const float min = clamp(regs.depth_bounds[0], 0.0f);
         const float max = std::max(min, clamp(regs.depth_bounds[1], 1.0f));
         const std::array bounds{min, max};
-        if (!command_state.valid || command_state.depth_bounds != bounds) {
+        if (!CommandState().valid || CommandState().depth_bounds != bounds) {
             cmd->OMSetDepthBounds(min, max);
-            command_state.depth_bounds = bounds;
+            CommandState().depth_bounds = bounds;
         }
     }
     // D3D12 has a single reference for both faces.
-    if (!command_state.valid || state_tracker.TouchStencilReference() ||
-        command_state.stencil_ref != regs.stencil_front_ref) {
+    if (!CommandState().valid || state_tracker.TouchStencilReference() ||
+        CommandState().stencil_ref != regs.stencil_front_ref) {
         cmd->OMSetStencilRef(regs.stencil_front_ref);
-        command_state.stencil_ref = regs.stencil_front_ref;
+        CommandState().stencil_ref = regs.stencil_front_ref;
     }
     if (regs.stencil_two_side_enable != 0 && regs.stencil_back_ref != regs.stencil_front_ref) {
         BUG_TRACK(UnsupportedState, "different front ({}) and back ({}) stencil references; the "
@@ -218,12 +218,12 @@ void RasterizerD3D12::BindDrawState(const GraphicsPipeline& pipeline,
 
     const D3D12_PRIMITIVE_TOPOLOGY d3d_topology =
         MaxwellToD3D12::PrimitiveTopology(topology, regs.patch_vertices);
-    if (!command_state.valid || command_state.topology != d3d_topology) {
+    if (!CommandState().valid || CommandState().topology != d3d_topology) {
         cmd->IASetPrimitiveTopology(d3d_topology);
-        command_state.topology = d3d_topology;
+        CommandState().topology = d3d_topology;
     }
     buffer_runtime.ApplyGeometry(cmd);
-    command_state.valid = true;
+    CommandState().valid = true;
 }
 
 void RasterizerD3D12::SetGraphicsRootArguments(CommandStream* cmd,
@@ -232,7 +232,7 @@ void RasterizerD3D12::SetGraphicsRootArguments(CommandStream* cmd,
                                                const DrawParams& params) {
     const PipelineLayout& layout = pipeline.Layout();
     // Consecutive draws of one pipeline mostly repeat their root arguments: only changes are set.
-    auto& cached = command_state.root_args;
+    auto& cached = CommandState().root_args;
     if (!cached.valid || cached.push_constants != bindings.push_constants) {
         cmd->SetGraphicsRoot32BitConstants(PipelineLayout::PUSH_CONSTANTS_INDEX,
                                            PUSH_CONSTANT_WORDS, bindings.push_constants.data(), 0);
@@ -242,9 +242,9 @@ void RasterizerD3D12::SetGraphicsRootArguments(CommandStream* cmd,
     runtime_data.first_vertex = params.runtime_first_vertex;
     runtime_data.base_instance = params.base_instance;
     runtime_data.is_indexed_draw = params.is_indexed;
-    runtime_data.yz_flip_mask = command_state.viewport.yz_flip_mask;
-    runtime_data.viewport_width = command_state.viewport.width;
-    runtime_data.viewport_height = command_state.viewport.height;
+    runtime_data.yz_flip_mask = CommandState().viewport.yz_flip_mask;
+    runtime_data.viewport_width = CommandState().viewport.width;
+    runtime_data.viewport_height = CommandState().viewport.height;
     constexpr size_t runtime_size = sizeof(runtime_data) / sizeof(u32);
     static_assert(runtime_size <= std::tuple_size_v<decltype(cached.runtime_words)>);
     std::array<u32, std::tuple_size_v<decltype(cached.runtime_words)>> runtime_words{};
@@ -294,12 +294,12 @@ void RasterizerD3D12::SetGraphicsRootArguments(CommandStream* cmd,
 }
 
 void RasterizerD3D12::InvalidateGraphicsState() {
-    command_state.valid = false;
-    command_state.graphics_root = nullptr;
+    CommandState().valid = false;
+    CommandState().graphics_root = nullptr;
 }
 
 void RasterizerD3D12::InvalidateCommandListState() {
-    command_state = {};
+    CommandState() = {};
     buffer_runtime.InvalidateGeometry();
     state_invalidation_pending = channel_bound;
 }

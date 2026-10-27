@@ -205,7 +205,7 @@ void RasterizerD3D12::DrawIndirect() {
     texture_runtime.FinishCompatibleDrawTargets(*framebuffer);
     hunt.Recorded();
     // The command signature wrote the runtime data constants: the next draw sets them again.
-    command_state.root_args.valid = false;
+    CommandState().root_args.valid = false;
     if (full) {
         CaptureFullBuffers(full_buffers, true);
         CaptureFullImages(full_views, framebuffer, true);

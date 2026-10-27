@@ -527,7 +527,7 @@ void RasterizerD3D12::CapturePickProbes(
         }
         query_cache.DisableStreams();
         SCOPE_EXIT {
-            command_state.valid = false;
+            CommandState().valid = false;
             query_cache.EnableCounters();
         };
         constexpr u32 passes = 39;
@@ -554,7 +554,7 @@ void RasterizerD3D12::CapturePickProbes(
                                                             handles[1], handles[2]};
             for (u32 rt = 0; rt < 3; ++rt)
                 images[rt == 0 && pass == 0 ? 3 : rt]->Transition(D3D12_RESOURCE_STATE_RENDER_TARGET);
-            command_state.valid = false;
+            CommandState().valid = false;
             BindDrawState(pipeline, bindings, framebuffer, params, topology, targets);
             auto* cmd = scheduler.CommandList();
             // ApplyGeometry consumes its pending bindings on the original guest draw.
@@ -576,7 +576,7 @@ void RasterizerD3D12::CapturePickProbes(
             }
         }
     } catch (const std::exception& error) {
-        command_state.valid = false;
+        CommandState().valid = false;
         FC::Omit("pick_probe_exception");
         LOG_ERROR(Render, "D3D12 pick capture probe: {}", error.what());
     }

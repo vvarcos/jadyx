@@ -305,7 +305,19 @@ private:
             D3D12_GPU_VIRTUAL_ADDRESS integer_samplers{};
             D3D12_GPU_VIRTUAL_ADDRESS local_memory_scratch{};
         } root_args;
-    } command_state;
+    };
+    /// One command state per recorded list. Chunked recording gives every list its own: a list that
+    /// starts in the middle of a frame has none of what the previous one bound, so it re-emits the
+    /// state it needs instead of inheriting another list's.
+    static constexpr size_t MAX_COMMAND_LISTS = 2;
+    std::array<CommandListState, MAX_COMMAND_LISTS> command_states;
+    size_t command_list_index{};
+    CommandListState& CommandState() { return command_states[command_list_index]; }
+    /// Points the recorder at one of the lists and forgets its state, so the next draw re-binds it.
+    void SelectCommandList(size_t index) {
+        command_list_index = index % MAX_COMMAND_LISTS;
+        command_states[command_list_index] = {};
+    }
     bool channel_bound{};
     bool state_invalidation_pending{};
     // QueryCache owns the scheduler callback lifetime and clears every submission callback in its

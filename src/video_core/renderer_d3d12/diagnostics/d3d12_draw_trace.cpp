@@ -1416,7 +1416,7 @@ void RasterizerD3D12::ProbeMaterialIntermediates(const GraphicsPipeline& pipelin
     for (const auto& probe : probes) scheduler.DeferRelease(probe);
     auto* cmd = scheduler.CommandList();
     SCOPE_EXIT {
-        command_state.valid = false;
+        CommandState().valid = false;
         try {
             // Internal draws must not contribute samples/primitives to guest query reports.
             query_cache.EnableCounters();
