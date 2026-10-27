@@ -29,12 +29,14 @@
 
 namespace D3D12 {
 
+/// A command list cannot close while a query it began is still open (d3d12_query_cache.cpp).
+bool AnyQueryOpen();
+
 namespace {
 
 /// Draws recorded into each command list of a tick (boot.cfg "record_chunks=N"). One keeps the
 /// single list the renderer always used; more are capped by the scheduler's list ring.
 std::atomic_size_t record_chunks{1};
-
 /// Guest query types the D3D12 query cache counts on the host (see d3d12_query_cache.cpp); the
 /// rest are written by QueryFallback. Same mapping as the OpenGL backend.
 std::optional<VideoCore::QueryType> MaxwellToVideoCoreQuery(VideoCommon::QueryType type) {
@@ -137,16 +139,21 @@ void RasterizerD3D12::Draw(bool is_indexed, u32 instance_count) {
             // A new tick starts recording into the first list again, and none of the lists keep
             // what the previous tick left in their state.
             ResetCommandLists();
+            state_invalidation_pending = true;
             // Draws per list, from the previous tick's count, so the lists come out about equal.
             chunk_size = (std::max)(size_t{1}, tick_draws / chunks);
             tick_draws = 0;
         }
         ++tick_draws;
-        if (scheduler.ActiveList() + 1 < Scheduler::MAX_LISTS && ++chunk_draws >= chunk_size) {
+        if (scheduler.ActiveList() + 1 < Scheduler::MAX_LISTS && ++chunk_draws >= chunk_size &&
+            !AnyQueryOpen()) {
             chunk_draws = 0;
             const size_t next = scheduler.ActiveList() + 1;
             scheduler.SelectList(next);
             SelectCommandList(next);
+            // A list starts without the vertex buffers the previous one bound and without the
+            // state the pipeline key rereads: this is the path that puts them back.
+            state_invalidation_pending = true;
         }
     }
     const bool full = VideoCommon::FullCapture::Active();

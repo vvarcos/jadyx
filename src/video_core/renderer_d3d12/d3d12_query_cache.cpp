@@ -130,12 +130,23 @@ std::optional<PendingReport> QueryCache::PeekReport(VAddr addr) {
     });
 }
 
+/// Counters whose query has begun and not ended. A command list cannot close with one open, so
+/// chunked recording must not split while this is not zero.
+namespace {
+std::atomic<s32> open_queries{0};
+} // Anonymous namespace
+
+bool AnyQueryOpen() {
+    return open_queries.load(std::memory_order_relaxed) != 0;
+}
+
 HostCounter::HostCounter(QueryCache& cache_, std::shared_ptr<HostCounter> dependency_,
                          VideoCore::QueryType type_)
     : HostCounterBase{std::move(dependency_)}, cache{cache_}, type{type_},
       query_type{GetQueryInfo(type_).query}, pool{cache_.GetPool()}, slot{pool->Reserve(type_)} {
     begin_tick = cache.GetScheduler().CurrentTick();
     cache.GetScheduler().CommandList()->BeginQuery(slot.heap, query_type, slot.index);
+    open_queries.fetch_add(1, std::memory_order_relaxed);
 }
 
 HostCounter::~HostCounter() {
@@ -167,6 +178,7 @@ void HostCounter::EndQuery() {
     if (ended) {
         return;
     }
+    open_queries.fetch_sub(1, std::memory_order_relaxed);
     auto* list = cache.GetScheduler().CommandList();
     list->EndQuery(slot.heap, query_type, slot.index);
     list->ResolveQueryData(slot.heap, query_type, slot.index, 1, slot.readback, slot.offset);
