@@ -50,12 +50,20 @@ public:
     Scheduler(const Scheduler&) = delete;
     Scheduler& operator=(const Scheduler&) = delete;
 
-    /// Records work for CurrentTick() into the direct list. Marks the caller as the recording
+    /// Records work for CurrentTick() into the selected list. Marks the caller as the recording
     /// thread.
     [[nodiscard]] CommandStream* CommandList() {
         recording_thread.store(std::this_thread::get_id(), std::memory_order_relaxed);
-        return &*stream;
+        return &*Active().stream;
     }
+
+    /// Lists one tick may be recorded into. The renderer asks for more than one only when chunked
+    /// recording is on; each is submitted in order, so the GPU sees the same sequence.
+    static constexpr size_t MAX_LISTS = 2;
+
+    /// Records the rest of this tick into list index (created on first use). Its state starts
+    /// empty: whoever records into it sets everything again. Lists are submitted in index order.
+    void SelectList(size_t index);
 
     /// Graphics and compute share one PSO binding on a direct list. All users, including internal
     /// texture conversions, must go through this cache so the next draw restores its graphics PSO.
@@ -112,10 +120,10 @@ public:
     /// what the list reads on the CPU when it is called (the RTV/DSV behind a handle) may be
     /// reused from then on.
     [[nodiscard]] u64 RecordPoint() const noexcept {
-        return recorder->RecordPoint();
+        return lists[active_list].recorder->RecordPoint();
     }
     [[nodiscard]] bool IsRecorded(u64 point) const noexcept {
-        return recorder->IsExecuted(point);
+        return lists[active_list].recorder->IsExecuted(point);
     }
 
     /// Whether the caller is the thread recording into CommandList().
@@ -147,7 +155,7 @@ public:
     /// Frees retired allocators and released objects; called on every flush and frame.
     void CollectGarbage();
 
-    [[nodiscard]] auto RecorderStatistics() const noexcept { return recorder->ReadStatistics(); }
+    [[nodiscard]] auto RecorderStatistics() const noexcept { return lists[active_list].recorder->ReadStatistics(); }
 
     /// The most frequent call stacks of submissions and blocking waits on the recording thread
     /// since the last call, as "count x rva<rva<..." (jadyx.exe RVAs for the build's PDB).
@@ -165,9 +173,23 @@ private:
 
     ComPtr<ID3D12CommandAllocator> AcquireAllocator();
 
+    /// One recorded list of a tick, with the allocator and the calls buffered for it.
+    struct ListSlot {
+        ComPtr<ID3D12GraphicsCommandList> list;
+        ComPtr<ID3D12CommandAllocator> allocator;
+        std::optional<ListRecorder> recorder;
+        std::optional<CommandStream> stream;
+        bool used{}; ///< Something was recorded into it this tick.
+    };
+    ListSlot& Active() { return lists[active_list]; }
+    const ListSlot& Active() const { return lists[active_list]; }
+    /// Creates list index if this tick has not created it yet.
+    void CreateList(size_t index);
+
     /// Closes the list, submits it to signal tick and resets it for the next one. Recorded by
-    /// Flush, so it runs where the list is recorded (the worker or the recording thread).
-    void SubmitRecorded(ID3D12GraphicsCommandList* list, u64 tick);
+    /// Flush, so it runs where the list is recorded (the worker or the recording thread). Only the
+    /// last list of a tick signals it; the earlier ones run in submission order.
+    void SubmitRecorded(size_t index, ID3D12GraphicsCommandList* list, u64 tick, bool signal);
     /// On the worker after a recorded call threw: releases every waiter, so the recording thread
     /// reaches its next Flush or Wait, which rethrows the error.
     void ReleaseWaitersAfterError() noexcept;
@@ -199,14 +221,12 @@ private:
     Device& device;
     ComPtr<ID3D12Fence> fence;
 
-    // Owned by whoever records the list's calls: the worker, or the recording thread without one.
-    ComPtr<ID3D12GraphicsCommandList> command_list;
-    ComPtr<ID3D12CommandAllocator> current_allocator;
+    /// Records the calls on the selected slot's list (see CommandStream).
+    std::array<ListSlot, MAX_LISTS> lists;
     std::deque<PooledAllocator> allocator_pool;
-
-    /// Records the calls on command_list (see CommandStream).
-    std::optional<ListRecorder> recorder;
-    std::optional<CommandStream> stream;
+    size_t active_list{};
+    /// Highest list this tick recorded into: all of 0..highest_list are submitted, in order.
+    size_t highest_list{};
     ID3D12PipelineState* current_pipeline{};
 
     std::mutex release_mutex;

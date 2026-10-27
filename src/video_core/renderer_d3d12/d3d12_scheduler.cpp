@@ -57,22 +57,45 @@ Scheduler::Scheduler(Device& device_) : device{device_} {
     ID3D12Device* const dev = device.Get();
     ThrowIfFailed(dev->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)),
                   "CreateFence (scheduler)");
-    current_allocator = AcquireAllocator();
-    ThrowIfFailed(dev->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                         current_allocator.Get(), nullptr,
-                                         IID_PPV_ARGS(&command_list)),
+    CreateList(0);
+    CreateTimestamps();
+    BeginTimestamp();
+}
+
+void Scheduler::CreateList(size_t index) {
+    ListSlot& slot = lists[index];
+    if (slot.list) {
+        return;
+    }
+    slot.allocator = AcquireAllocator();
+    ThrowIfFailed(device.Get()->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                  slot.allocator.Get(), nullptr,
+                                                  IID_PPV_ARGS(&slot.list)),
                   "CreateCommandList");
     // Below the GPU thread's priority: it only has to keep up with what the GPU thread records.
     const ListRecorder::Options options{.threaded = async_recording.load(std::memory_order_relaxed),
                                         .profile = VideoCore::Perf::DetailedGpuProfileEnabled(),
-                                        .thread_name = "D3D12Recorder",
+                                        .thread_name = index == 0 ? "D3D12Recorder"
+                                                                  : "D3D12Recorder2",
                                         .priority = Common::ThreadPriority::High};
-    recorder.emplace(command_list.Get(), options, [this] { ReleaseWaitersAfterError(); });
-    LOG_INFO(Render, "D3D12: command list calls made {}",
-             options.threaded ? "on a recording thread" : "on the GPU thread");
-    stream.emplace(*recorder);
-    CreateTimestamps();
-    BeginTimestamp();
+    if (index == 0) {
+        LOG_INFO(Render, "D3D12: command list calls made {}",
+                 options.threaded ? "on a recording thread" : "on the GPU thread");
+    }
+    slot.recorder.emplace(slot.list.Get(), options, [this] { ReleaseWaitersAfterError(); });
+    slot.stream.emplace(*slot.recorder);
+}
+
+void Scheduler::SelectList(size_t index) {
+    if (index >= MAX_LISTS || index == active_list) {
+        return;
+    }
+    CreateList(index);
+    active_list = index;
+    highest_list = (std::max)(highest_list, index);
+    // The new list has none of what the previous one bound, so its state is set again.
+    current_pipeline = nullptr;
+    lists[index].used = false;
 }
 
 void Scheduler::CreateTimestamps() {
@@ -117,7 +140,7 @@ void Scheduler::BeginTimestamp() {
     }
     timestamp_slot = timestamp_next;
     timestamp_next = (timestamp_next + 1) % TIMESTAMP_SLOTS;
-    stream->EndQuery(timestamp_heap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, timestamp_slot * 2);
+    Active().stream->EndQuery(timestamp_heap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, timestamp_slot * 2);
     timestamp_open = true;
 }
 
@@ -125,8 +148,8 @@ void Scheduler::EndTimestamp(u64 tick) {
     if (!timestamp_open) {
         return;
     }
-    stream->EndQuery(timestamp_heap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, timestamp_slot * 2 + 1);
-    stream->ResolveQueryData(timestamp_heap.Get(), D3D12_QUERY_TYPE_TIMESTAMP,
+    Active().stream->EndQuery(timestamp_heap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, timestamp_slot * 2 + 1);
+    Active().stream->ResolveQueryData(timestamp_heap.Get(), D3D12_QUERY_TYPE_TIMESTAMP,
                              timestamp_slot * 2, 2, timestamp_readback.Get(),
                              timestamp_slot * 2 * sizeof(u64));
     std::scoped_lock lock{timestamp_mutex};
@@ -154,7 +177,11 @@ void Scheduler::ReadTimestamps(u64 gpu_tick) {
 Scheduler::~Scheduler() {
     // Recorded after the renderer's last drain, while its caches were destroyed: the calls may
     // name objects that are gone, and nothing would submit them.
-    recorder->DiscardRecorded();
+    for (ListSlot& slot : lists) {
+        if (slot.recorder) {
+            slot.recorder->DiscardRecorded();
+        }
+    }
     try {
         // Teardown runs on whichever thread destroys the renderer; nothing records anymore.
         recording_thread.store(std::this_thread::get_id(), std::memory_order_relaxed);
@@ -162,9 +189,13 @@ Scheduler::~Scheduler() {
     } catch (const std::exception& e) {
         LOG_ERROR(Render, "{}", e.what());
     }
-    // Before the list and allocators it records into are destroyed.
-    stream.reset();
-    recorder.reset();
+    // Before the lists and allocators they record into are destroyed.
+    for (ListSlot& slot : lists) {
+        slot.stream.reset();
+        slot.recorder.reset();
+        slot.list.Reset();
+        slot.allocator.Reset();
+    }
     std::scoped_lock lock{release_mutex};
     pending_releases.clear();
 }
@@ -210,7 +241,7 @@ std::string Scheduler::TakeSyncSites(size_t max_sites) {
 }
 
 u64 Scheduler::Flush() {
-    recorder->RethrowError();
+    Active().recorder->RethrowError();
     if (const HRESULT reason = device.Get()->GetDeviceRemovedReason(); FAILED(reason)) {
         device.ReportDeviceRemoved();
         throw std::runtime_error(fmt::format("D3D12: flush on removed device 0x{:08X}", static_cast<u32>(reason)));
@@ -230,10 +261,20 @@ u64 Scheduler::Flush() {
         TraceGpuOperation(fmt::format("submit tick={} completed={} PSO={}", signaled,
                                      fence->GetCompletedValue(), static_cast<void*>(current_pipeline)));
     }
-    stream->Record([this, signaled](ID3D12GraphicsCommandList* list) {
-        SubmitRecorded(list, signaled);
-    });
-    recorder->Dispatch();
+    // Every list of this tick is submitted in index order and the last one signals it, so the GPU
+    // runs the same sequence the renderer asked for. The earliest lists go out without a signal
+    // of their own.
+    for (size_t index = 0; index <= highest_list; ++index) {
+        ListSlot& slot = lists[index];
+        if (!slot.stream) {
+            continue;
+        }
+        const bool signal = index == highest_list;
+        slot.stream->Record([this, index, signaled, signal](ID3D12GraphicsCommandList* list) {
+            SubmitRecorded(index, list, signaled, signal);
+        });
+        slot.recorder->Dispatch();
+    }
     VideoCore::Perf::Add(VideoCore::Perf::Counter::Submits, 1);
     {
         // Publish the flush to threads waiting on it (see Wait).
@@ -242,8 +283,14 @@ u64 Scheduler::Flush() {
     }
     submitted_cv.notify_all();
 
-    CollectGarbage();
+    {
+        const VideoCore::Perf::ScopedNsTimer timer{VideoCore::Perf::Counter::SubmitGarbageNs};
+        CollectGarbage();
+    }
     current_pipeline = nullptr;
+    // The next tick starts again from the first list.
+    active_list = 0;
+    highest_list = 0;
     BeginTimestamp();
     for (auto& callback : on_reset) {
         callback();
@@ -251,12 +298,16 @@ u64 Scheduler::Flush() {
     return signaled;
 }
 
-void Scheduler::SubmitRecorded(ID3D12GraphicsCommandList* list, u64 tick) {
+void Scheduler::SubmitRecorded(size_t index, ID3D12GraphicsCommandList* list, u64 tick,
+                               bool signal) {
     const bool probing = CloseProbeEnabled();
     if (probing) {
         ProbeBeforeClose();
     }
-    const HRESULT closed = list->Close();
+    const HRESULT closed = [&] {
+        const VideoCore::Perf::ScopedNsTimer timer{VideoCore::Perf::Counter::SubmitCloseNs};
+        return list->Close();
+    }();
     if (probing) {
         ProbeReportClose(FAILED(closed));
     }
@@ -267,24 +318,31 @@ void Scheduler::SubmitRecorded(ID3D12GraphicsCommandList* list, u64 tick) {
         DumpRecentGpuDetails(4096);
         ThrowIfFailed(closed, "ID3D12GraphicsCommandList::Close");
     }
-    ID3D12CommandList* const lists[] = {list};
+    ID3D12CommandList* const submit_lists[] = {list};
     {
+        const VideoCore::Perf::ScopedNsTimer timer{VideoCore::Perf::Counter::SubmitExecuteNs};
         // The present thread submits to the same queue (see Device::QueueMutex).
         std::scoped_lock queue_lock{device.QueueMutex()};
-        device.Queue()->ExecuteCommandLists(1, lists);
-        ThrowIfFailed(device.Queue()->Signal(fence.Get(), tick), "ID3D12CommandQueue::Signal");
+        device.Queue()->ExecuteCommandLists(1, submit_lists);
+        if (signal) {
+            ThrowIfFailed(device.Queue()->Signal(fence.Get(), tick),
+                          "ID3D12CommandQueue::Signal");
+        }
     }
-    VideoCore::FrameTrace::Mark(VideoCore::FrameTrace::Event::GpuSubmit);
-    CheckRemovedAfter(device.Get(), [&] {
-        return fmt::format("submitting tick {} (removed by the GPU or by a recorded command)",
-                           tick);
-    });
-    submitted_tick.store(tick, std::memory_order_release);
-    submitted_tick.notify_all();
+    if (signal) {
+        VideoCore::FrameTrace::Mark(VideoCore::FrameTrace::Event::GpuSubmit);
+        CheckRemovedAfter(device.Get(), [&] {
+            return fmt::format("submitting tick {} (removed by the GPU or by a recorded command)",
+                               tick);
+        });
+        submitted_tick.store(tick, std::memory_order_release);
+        submitted_tick.notify_all();
+    }
 
-    allocator_pool.push_back({std::move(current_allocator), tick});
-    current_allocator = AcquireAllocator();
-    ThrowIfFailed(list->Reset(current_allocator.Get(), nullptr),
+    ListSlot& slot = this->lists[index];
+    allocator_pool.push_back({std::move(slot.allocator), tick});
+    slot.allocator = AcquireAllocator();
+    ThrowIfFailed(list->Reset(slot.allocator.Get(), nullptr),
                   "ID3D12GraphicsCommandList::Reset");
     if (CloseProbeEnabled()) {
         ProbeResetState();
@@ -350,7 +408,7 @@ void Scheduler::Wait(u64 tick) {
     StoreMax(known_gpu_tick, tick);
     if (counted) {
         // A failed recorded call completes the fence from the CPU (ReleaseWaitersAfterError).
-        recorder->RethrowError();
+        Active().recorder->RethrowError();
     }
     if (GpuDiagnosticsEnabled()) TraceGpuOperation(fmt::format("wait END tick={} fence={}", tick, fence->GetCompletedValue()));
     if (counted) {
