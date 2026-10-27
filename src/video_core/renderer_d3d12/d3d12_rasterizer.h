@@ -309,7 +309,7 @@ private:
     /// One command state per recorded list. Chunked recording gives every list its own: a list that
     /// starts in the middle of a frame has none of what the previous one bound, so it re-emits the
     /// state it needs instead of inheriting another list's.
-    static constexpr size_t MAX_COMMAND_LISTS = 2;
+    static constexpr size_t MAX_COMMAND_LISTS = 8;
     std::array<CommandListState, MAX_COMMAND_LISTS> command_states;
     size_t command_list_index{};
     CommandListState& CommandState() { return command_states[command_list_index]; }
@@ -318,7 +318,19 @@ private:
         command_list_index = index % MAX_COMMAND_LISTS;
         command_states[command_list_index] = {};
     }
+    /// Starts a tick: the first list again, with no state remembered from the tick before.
+    void ResetCommandLists() {
+        for (CommandListState& state : command_states) {
+            state = {};
+        }
+        command_list_index = 0;
+    }
     bool channel_bound{};
+    /// Draws recorded into each command list of a tick ("record_chunks=N"; 1 keeps one list).
+    u64 chunk_tick{};
+    size_t chunk_draws{};
+    size_t chunk_size{1};
+    size_t tick_draws{};
     bool state_invalidation_pending{};
     // QueryCache owns the scheduler callback lifetime and clears every submission callback in its
     // destructor. Keep it after the state captured by our reset callback, so it is destroyed first.

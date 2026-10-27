@@ -157,6 +157,7 @@ enum class PixelShaderScratchMode : u8; // d3d12_local_memory_scratch.h: Auto, U
 void SetPixelShaderScratchMode(PixelShaderScratchMode mode);
 void SetAsyncRecording(bool enabled);          // d3d12_scheduler.h
 void SetVsyncOff(bool off);                    // d3d12_swapchain.h
+void SetRecordChunks(size_t count);            // d3d12_rasterizer.cpp
 using AppMemoryQuery = bool (*)(u64& used, u64& limit); // d3d12_device.h
 void SetAppMemoryQuery(AppMemoryQuery query);            // d3d12_device.h
 } // namespace D3D12
@@ -316,6 +317,8 @@ struct BootConfig {
     bool force_swap_interval_one{};
     /// Diagnostic only, PC: present with no sync interval ("vsync=0"), to measure headroom.
     bool vsync_off{};
+    /// Draws recorded into each command list ("record_chunks=N"); 1 keeps the single list.
+    size_t record_chunks{1};
     /// Copy and present frames on a thread of their own, so the GPU thread never waits for the
     /// display ("async_present=0" presents on the GPU thread, as Present used to).
     bool async_present{true};
@@ -537,6 +540,7 @@ int RunHeadlessBoot(const std::string& nro_path, const BootSurface& surface,
     const bool unlock_fps = config.vsync_off || LoadSystemSettings().unlock_fps;
     VideoCore::Perf::SetForceSwapIntervalOne(config.force_swap_interval_one || unlock_fps);
     D3D12::SetVsyncOff(unlock_fps);
+    D3D12::SetRecordChunks(config.record_chunks);
     LOG_INFO(Frontend, "System: unlock FPS {} (guest swap interval one, host vsync {})",
              unlock_fps, unlock_fps ? "off" : "on");
     Settings::values.async_presentation.SetValue(config.async_present);
@@ -2776,6 +2780,11 @@ struct BootView : implements<BootView, IFrameworkViewSource, IFrameworkView> {
                         } else if (line == "vsync=0") {
                             config.vsync_off = true;
                             WriteDiag("boot.cfg: presenting with no sync interval (diagnostic)");
+                        } else if (line.rfind("record_chunks=", 0) == 0) {
+                            config.record_chunks =
+                                static_cast<size_t>(std::strtoul(line.c_str() + 14, nullptr, 10));
+                            WriteDiag(fmt::format("boot.cfg: {} recorded lists per tick",
+                                                  config.record_chunks));
                         } else if (line == "debug_layer=1" || line == "debug_layer=gbv") {
                             config.debug_layer = true;
                             config.gpu_validation = line == "debug_layer=gbv";

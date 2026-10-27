@@ -31,6 +31,10 @@ namespace D3D12 {
 
 namespace {
 
+/// Draws recorded into each command list of a tick (boot.cfg "record_chunks=N"). One keeps the
+/// single list the renderer always used; more are capped by the scheduler's list ring.
+std::atomic_size_t record_chunks{1};
+
 /// Guest query types the D3D12 query cache counts on the host (see d3d12_query_cache.cpp); the
 /// rest are written by QueryFallback. Same mapping as the OpenGL backend.
 std::optional<VideoCore::QueryType> MaxwellToVideoCoreQuery(VideoCommon::QueryType type) {
@@ -118,7 +122,33 @@ RasterizerD3D12::~RasterizerD3D12() {
     buffer_runtime.SetDescriptorQueue(nullptr);
 }
 
+void SetRecordChunks(size_t count) {
+    record_chunks.store((std::min)(count, Scheduler::MAX_LISTS), std::memory_order_relaxed);
+}
+
 void RasterizerD3D12::Draw(bool is_indexed, u32 instance_count) {
+    // Chunked recording: every record_chunks draws the rest of the tick goes into the next list, so
+    // a worker can record that one while this thread fills the next. Only the last list of a tick
+    // signals it, and the queue runs the lists in submission order.
+    if (const size_t chunks = record_chunks.load(std::memory_order_relaxed); chunks > 1) {
+        if (const u64 tick = scheduler.CurrentTick(); tick != chunk_tick) {
+            chunk_tick = tick;
+            chunk_draws = 0;
+            // A new tick starts recording into the first list again, and none of the lists keep
+            // what the previous tick left in their state.
+            ResetCommandLists();
+            // Draws per list, from the previous tick's count, so the lists come out about equal.
+            chunk_size = (std::max)(size_t{1}, tick_draws / chunks);
+            tick_draws = 0;
+        }
+        ++tick_draws;
+        if (scheduler.ActiveList() + 1 < Scheduler::MAX_LISTS && ++chunk_draws >= chunk_size) {
+            chunk_draws = 0;
+            const size_t next = scheduler.ActiveList() + 1;
+            scheduler.SelectList(next);
+            SelectCommandList(next);
+        }
+    }
     const bool full = VideoCommon::FullCapture::Active();
     if (full) {
         ++full_capture_operation;
