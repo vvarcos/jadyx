@@ -190,6 +190,7 @@ private:
     struct RecentTable {
         u64 tick{};
         u64 view_frees{};
+        u64 hash{}; ///< FNV-1a of the recorded writes: rejects differing tables in one compare.
         u32 count{};
         D3D12_GPU_DESCRIPTOR_HANDLE gpu{};
         std::vector<Write> writes;
@@ -197,6 +198,8 @@ private:
     static constexpr size_t NUM_RECENT_TABLES = 8;
 
     D3D12_CPU_DESCRIPTOR_HANDLE Next();
+    /// Appends one descriptor and folds it into writes_hash.
+    void Record(Write write);
     /// The recent table holding exactly the recorded descriptors, if one may still be read.
     [[nodiscard]] const RecentTable* FindRecent() const;
     void WriteRecorded();
@@ -215,6 +218,9 @@ private:
     u64 acquire_tick{};
     bool finished{};
     std::vector<Write> writes;
+    /// FNV-1a over the writes recorded for this table, so an unchanged table is found without
+    /// comparing every descriptor against eight candidates (games rebind the same table a lot).
+    u64 writes_hash{};
     std::array<RecentTable, NUM_RECENT_TABLES> recent_tables{};
     size_t next_recent{};
     /// Sources of the pending copies, written from copy_destination on.

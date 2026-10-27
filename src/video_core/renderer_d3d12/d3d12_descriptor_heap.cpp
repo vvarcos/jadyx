@@ -260,6 +260,11 @@ void GuestDescriptorQueue::Acquire(u32 count_, std::span<const ConstantBufferSlo
     written = 0;
     finished = false;
     writes.clear();
+    // One FNV-1a seed per table, mixed with the count so a table of another size never collides.
+    writes_hash = 0xcbf29ce484222325ULL ^ static_cast<u64>(count_);
+    if (writes.capacity() < count_) {
+        writes.reserve(count_);
+    }
     pending_copies.clear();
     cbv_slots = cbv_slots_;
     cbv_index = 0;
@@ -302,6 +307,7 @@ D3D12_GPU_DESCRIPTOR_HANDLE GuestDescriptorQueue::Table() {
         next_recent = (next_recent + 1) % NUM_RECENT_TABLES;
         recent.tick = acquire_tick;
         recent.view_frees = CpuDescriptorAllocator::ViewFrees();
+        recent.hash = writes_hash;
         recent.count = count;
         recent.gpu = range.gpu;
         recent.writes.assign(writes.begin(), writes.end());
@@ -321,7 +327,7 @@ const GuestDescriptorQueue::RecentTable* GuestDescriptorQueue::FindRecent() cons
     const u64 view_frees = CpuDescriptorAllocator::ViewFrees();
     for (const RecentTable& recent : recent_tables) {
         if (recent.tick == tick && recent.count == count && recent.view_frees == view_frees &&
-            recent.writes == writes) {
+            recent.hash == writes_hash && recent.writes == writes) {
             return &recent;
         }
     }
@@ -368,6 +374,19 @@ u32 GuestDescriptorQueue::ConstantBufferReach(u32 size) const {
     return std::min(std::max(size, cbv_slots[cbv_index].reach), MAX_CONSTANT_BUFFER_BYTES);
 }
 
+void GuestDescriptorQueue::Record(Write write) {
+    constexpr u64 prime = 0x100000001b3ULL;
+    const auto mix = [](u64 hash, u64 value) {
+        return (hash ^ value) * prime;
+    };
+    writes_hash = mix(writes_hash, static_cast<u64>(write.kind));
+    writes_hash = mix(writes_hash, write.size);
+    writes_hash = mix(writes_hash, write.handle);
+    writes_hash = mix(writes_hash, write.offset);
+    writes_hash = mix(writes_hash, (static_cast<u64>(write.format) << 32) | write.with_uav);
+    writes.push_back(write);
+}
+
 void GuestDescriptorQueue::AddConstantBuffer(D3D12_GPU_VIRTUAL_ADDRESS address, u32 size) {
     const u32 index = cbv_index++;
     if (index < cbv_slots.size() && cbv_slots[index].root_slot != ConstantBufferSlot::TABLE) {
@@ -383,7 +402,7 @@ void GuestDescriptorQueue::AddConstantBuffer(D3D12_GPU_VIRTUAL_ADDRESS address, 
     if (count == 0) {
         return;
     }
-    writes.push_back({
+    Record({
         .kind = Write::Kind::ConstantBuffer,
         .size = address != 0 ? (size + 255u) & ~255u : 0u,
         .handle = address,
@@ -403,7 +422,7 @@ void GuestDescriptorQueue::AddStorageBuffer(ID3D12Resource* resource, u64 offset
                     offset);
         resource = nullptr;
     }
-    writes.push_back({
+    Record({
         .kind = Write::Kind::StorageBuffer,
         .size = resource ? size : 0,
         .handle = reinterpret_cast<u64>(resource),
@@ -428,7 +447,7 @@ void GuestDescriptorQueue::AddTexelBuffer(ID3D12Resource* resource, u64 offset, 
         WarnOnceLog(logged_unaligned, "texel buffer at unaligned offset {} bound as null", offset);
         resource = nullptr;
     }
-    writes.push_back({
+    Record({
         .kind = Write::Kind::TexelBuffer,
         .size = resource ? size / element_size : 0,
         .handle = reinterpret_cast<u64>(resource),
@@ -442,7 +461,7 @@ void GuestDescriptorQueue::AddCopy(D3D12_CPU_DESCRIPTOR_HANDLE descriptor) {
     if (count == 0) {
         return;
     }
-    writes.push_back({.kind = Write::Kind::Copy, .handle = static_cast<u64>(descriptor.ptr)});
+    Record({.kind = Write::Kind::Copy, .handle = static_cast<u64>(descriptor.ptr)});
 }
 
 void GuestDescriptorQueue::CreateConstantBuffer(const Write& write) {

@@ -801,6 +801,9 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     const auto load_graphics{[&](std::ifstream& file, std::vector<FileEnvironment> envs) {
         GraphicsPipelineCacheKey key;
         file.read(reinterpret_cast<char*>(&key), sizeof(key));
+        // Keys stored by a build before the depth-bias snapping carry an unsnapped bias: normalize
+        // them, so this session does not rebuild a separate PSO for every old value.
+        key.NormalizeStatic();
         // Every pipeline gets its DXIL; only the hot ones a PSO, the rest when first drawn.
         const size_t file_index = state.graphics++;
         const bool build_pso = hot_pipelines.Prewarm(key.Hash(), file_index);
@@ -818,10 +821,13 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
 
             std::scoped_lock lock{state.mutex};
             if (pipeline) {
-                if (!build_pso) {
-                    state.dormant.emplace_back(file_index, pipeline.get());
+                // Two keys of the file can land on the same pipeline once the depth bias is
+                // snapped, so this insert can fail; the dormant list must then keep nothing, or it
+                // would point at the pipeline destroyed with the failed insert.
+                auto [entry, inserted] = graphics_cache.emplace(key, std::move(pipeline));
+                if (inserted && !build_pso) {
+                    state.dormant.emplace_back(file_index, entry->second.get());
                 }
-                graphics_cache.emplace(key, std::move(pipeline));
             }
             ++state.built;
             if (state.has_loaded) {

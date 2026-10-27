@@ -73,6 +73,10 @@ struct GraphicsPipelineCacheKey {
 
     /// Refreshes the D3D12-only fields from the registers (state must be refreshed first).
     void RefreshStatic(const Maxwell& regs) noexcept;
+
+    /// Applies the depth-bias snapping to a key read from the disk cache, so a key stored by an
+    /// older build (before the snapping existed) lands on the same pipeline as a fresh one.
+    void NormalizeStatic() noexcept;
 };
 static_assert(std::has_unique_object_representations_v<GraphicsPipelineCacheKey>);
 static_assert(std::is_trivially_copyable_v<GraphicsPipelineCacheKey>);

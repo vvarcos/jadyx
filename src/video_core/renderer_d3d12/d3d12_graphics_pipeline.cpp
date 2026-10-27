@@ -49,7 +49,9 @@
 namespace D3D12 {
 
 namespace {
-std::atomic_bool draw_sampler_reuse{};
+/// On by default: resolving the same sampler id twice in one draw is common (several textures of a
+/// stage sharing a sampler), and the cache only remembers ids it resolved already.
+std::atomic_bool draw_sampler_reuse{true};
 }
 void SetDrawSamplerReuse(bool enabled) {
     draw_sampler_reuse.store(enabled, std::memory_order_relaxed);
@@ -205,12 +207,39 @@ bool GraphicsPipelineCacheKey::operator==(const GraphicsPipelineCacheKey& rhs) c
                        KEY_EXTRA_SIZE) == 0;
 }
 
+namespace {
+/// D3D12 bakes the depth bias into the PSO (Vulkan sets it per draw), so a bias that varies with
+/// the geometry creates a new PSO for every value it takes: Zelda feeds thousands of slightly
+/// different values and the pipeline cache grew to 30k PSOs, with the driver compile hitches and
+/// the memory that come with them. Snap the float to 16 steps per octave: the error stays far
+/// below what the bias is compensating for, and equal-looking states collapse into one pipeline.
+/// Sign, exponent and the top four mantissa bits are kept; zero, denormals and non-finite values
+/// are left alone.
+u32 SnapDepthBiasBits(u32 bits) {
+    const u32 exponent = bits & 0x7F800000U;
+    if (exponent == 0x7F800000U || exponent == 0) {
+        return bits;
+    }
+    return bits & 0xFFF80000U;
+}
+
+u32 SnapDepthBias(float value) {
+    return SnapDepthBiasBits(std::bit_cast<u32>(value));
+}
+} // Anonymous namespace
+
+void GraphicsPipelineCacheKey::NormalizeStatic() noexcept {
+    depth_bias = SnapDepthBiasBits(depth_bias);
+    depth_bias_clamp = SnapDepthBiasBits(depth_bias_clamp);
+    slope_scaled_depth_bias = SnapDepthBiasBits(slope_scaled_depth_bias);
+}
+
 void GraphicsPipelineCacheKey::RefreshStatic(const Maxwell& regs) noexcept {
     const auto& dynamic = state.dynamic_state;
     const bool bias = dynamic.depth_bias_enable != 0;
-    depth_bias = bias ? std::bit_cast<u32>(regs.depth_bias) : 0;
-    depth_bias_clamp = bias ? std::bit_cast<u32>(regs.depth_bias_clamp) : 0;
-    slope_scaled_depth_bias = bias ? std::bit_cast<u32>(regs.slope_scale_depth_bias) : 0;
+    depth_bias = bias ? SnapDepthBias(regs.depth_bias) : 0;
+    depth_bias_clamp = bias ? SnapDepthBias(regs.depth_bias_clamp) : 0;
+    slope_scaled_depth_bias = bias ? SnapDepthBias(regs.slope_scale_depth_bias) : 0;
     const bool stencil = dynamic.stencil_enable != 0;
     stencil_read_mask = stencil ? static_cast<u8>(regs.stencil_front_func_mask) : 0;
     stencil_write_mask = stencil ? static_cast<u8>(regs.stencil_front_mask) : 0;
@@ -1164,11 +1193,14 @@ void GraphicsPipeline::Build(bool flatten_on_fault) try {
     }
     LOG_INFO(Render,
              "D3D12: pipeline built for VS {:016x} PS {:016x} ({} attributes, {} RTs, RT0 {}, "
-             "DSV {}, {} + {} descriptors, features VS {:x} PS {:x})",
+             "DSV {}, {} + {} descriptors, features VS {:x} PS {:x}, bias {:08x}/{:08x}/{:08x} "
+             "sten {:02x}/{:02x})",
              key.unique_hashes[1], key.unique_hashes[5], elements.size(), num_attachments,
              static_cast<u32>(desc.RTVFormats[0]), static_cast<u32>(desc.DSVFormat),
              layout.NumResourceDescriptors(), layout.NumSamplerDescriptors(),
-             ShaderFeatureFlags(stages[0]), ShaderFeatureFlags(stages[4]));
+             ShaderFeatureFlags(stages[0]), ShaderFeatureFlags(stages[4]), key.depth_bias,
+             key.depth_bias_clamp, key.slope_scaled_depth_bias, key.stencil_read_mask,
+             key.stencil_write_mask);
 } catch (const std::exception& exception) {
     pipeline_state.Reset();
     shared_pso.reset();

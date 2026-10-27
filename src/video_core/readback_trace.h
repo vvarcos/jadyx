@@ -13,10 +13,22 @@
 
 namespace VideoCommon::ReadbackTrace {
 
+/// Off unless "readback_trace=1" is in boot.cfg. Hashing up to 1 MiB of every 128th readback runs
+/// on the path that hands GPU memory back to the guest, and Zelda reads that path thousands of
+/// times per second: the diagnostic cost more than it explained.
+inline std::atomic_bool enabled{};
+
+inline void SetEnabled(bool value) {
+    enabled.store(value, std::memory_order_relaxed);
+}
+
 /// Diagnostic: data the GPU hands back to guest memory (first 400 events, then each 128th), with
 /// how much of it is non-zero, to tell a stale or empty download from a real one.
 inline void Log(const char* kind, u64 address, u64 size, std::span<const u8> data,
                 u32 format = 0, u32 width = 0, u32 height = 0) {
+    if (!enabled.load(std::memory_order_relaxed)) {
+        return;
+    }
     if (FullCapture::Active()) {
         FullCapture::Data("guest_readback", fmt::format(
             "{{\"route\":\"{}\",\"address\":{},\"requested_size\":{},\"format\":{},"
@@ -48,6 +60,9 @@ inline void Log(const char* kind, u64 address, u64 size, std::span<const u8> dat
 
 /// Diagnostic: a CPU read that had to wait for a GPU flush (first 400, then each 128th).
 inline void LogCpuReadFlush(u64 address, u64 size, u64 start, u64 end) {
+    if (!enabled.load(std::memory_order_relaxed)) {
+        return;
+    }
     if (FullCapture::Active()) FullCapture::Event("cpu_read_flush", fmt::format(
         "{{\"address\":{},\"size\":{},\"start\":{},\"end\":{}}}", address, size, start, end));
     static std::atomic<u64> events{};
