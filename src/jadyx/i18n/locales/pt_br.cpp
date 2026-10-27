@@ -570,6 +570,8 @@ const Catalog PortugueseBrazilCatalog = MakeCatalog({
     {Text::ModsAdult, L"Mods adultos"},
     {Text::PerformanceStats, L"Estatísticas de desempenho"},
     {Text::PerformanceStatsHint, L"Mostrar FPS e estatísticas de CPU/GPU/RAM"},
+    {Text::UnlockFps, L"Liberar FPS"},
+    {Text::UnlockFpsHint, L"Desliga o vsync para o jogo rodar o mais rápido que conseguir. A imagem pode rasgar."},
     {Text::ModsAdultHint, L"Listar os mods que a loja classifica como adultos, marcados com 18+"},
     {Text::ModsAdultShown, L"Visíveis"},
     {Text::ModsAdultHidden, L"Ocultos"},

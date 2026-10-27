@@ -10,6 +10,10 @@
 #include "video_core/performance_overlay.h"
 #include "core/hle/service/acc/profile_manager.h"
 
+namespace D3D12 {
+void SetVsyncOff(bool off); // d3d12_swapchain.h
+}
+
 namespace Jadyx {
 namespace {
 constexpr auto UiLanguageKey = L"system_ui_language";
@@ -17,6 +21,7 @@ constexpr auto GameLanguageKey = L"system_game_language";
 constexpr auto RegionKey = L"system_region";
 constexpr auto UserNameKey = L"system_user_name";
 constexpr auto PerformanceStatsKey = L"system_show_performance_stats";
+constexpr auto UnlockFpsKey = L"system_unlock_fps";
 constexpr auto AdultModsKey = L"system_show_adult_mods";
 constexpr auto PulseSessionsKey = L"system_pulse_sessions";
 constexpr auto PlayTimeKey = L"system_track_play_time";
@@ -54,6 +59,7 @@ SystemSettings LoadSystemSettings() {
             settings.user_name = SanitizeUserName(
                 winrt::unbox_value<winrt::hstring>(values.Lookup(UserNameKey)).c_str());
         if (values.HasKey(PerformanceStatsKey)) settings.show_performance_stats = winrt::unbox_value<bool>(values.Lookup(PerformanceStatsKey));
+        if (values.HasKey(UnlockFpsKey)) settings.unlock_fps = winrt::unbox_value<bool>(values.Lookup(UnlockFpsKey));
         if (values.HasKey(AdultModsKey)) settings.show_adult_mods = winrt::unbox_value<bool>(values.Lookup(AdultModsKey));
         if (values.HasKey(PulseSessionsKey)) settings.pulse_sessions = winrt::unbox_value<bool>(values.Lookup(PulseSessionsKey));
         if (values.HasKey(PlayTimeKey)) settings.track_play_time = winrt::unbox_value<bool>(values.Lookup(PlayTimeKey));
@@ -74,6 +80,7 @@ bool SaveSystemSettings(const SystemSettings& settings) {
         values.Insert(RegionKey, winrt::box_value(ChoiceValue(settings.region)));
         values.Insert(UserNameKey, winrt::box_value(winrt::hstring{SanitizeUserName(settings.user_name)}));
         values.Insert(PerformanceStatsKey, winrt::box_value(settings.show_performance_stats));
+        values.Insert(UnlockFpsKey, winrt::box_value(settings.unlock_fps));
         values.Insert(AdultModsKey, winrt::box_value(settings.show_adult_mods));
         values.Insert(PulseSessionsKey, winrt::box_value(settings.pulse_sessions));
         values.Insert(PlayTimeKey, winrt::box_value(settings.track_play_time));
@@ -100,6 +107,7 @@ ResolvedSystem ApplySystemSettings() {
     const auto locale = DetectSystemLocale();
     const auto settings = LoadSystemSettings();
     VideoCore::performance_overlay_enabled.store(settings.show_performance_stats, std::memory_order_relaxed);
+    D3D12::SetVsyncOff(settings.unlock_fps);
     ApplyUpscaling(settings.upscaling);
     const auto resolved = ResolveSystem(settings, locale);
     I18n::SetUiLanguage(*resolved.ui_language);

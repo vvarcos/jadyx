@@ -18,7 +18,7 @@
 namespace Jadyx {
 
 struct SystemPage {
-    enum Row : std::size_t { UserName, MiiEditor, InterfaceLanguage, GameLanguage, Region, AdultMods, PerformanceStats, PulseSessions, PlayTime, MultipleControllers, ClearCache, Updates, RowCount };
+    enum Row : std::size_t { UserName, MiiEditor, InterfaceLanguage, GameLanguage, Region, AdultMods, PerformanceStats, UnlockFps, PulseSessions, PlayTime, MultipleControllers, ClearCache, Updates, RowCount };
 
     bool updates_open{};
     std::size_t update_row{}, update_detail{}, update_scroll{};
@@ -100,6 +100,9 @@ inline SystemPageEffect HandleSystemInput(SystemPage& page, SystemInput input) {
     case Row::PerformanceStats:
         settings.show_performance_stats = !settings.show_performance_stats;
         return SystemPageEffect::Changed;
+    case Row::UnlockFps:
+        settings.unlock_fps = !settings.unlock_fps;
+        return SystemPageEffect::Changed;
     case Row::PulseSessions:
         settings.pulse_sessions = !settings.pulse_sessions;
         return SystemPageEffect::Changed;
@@ -147,6 +150,7 @@ inline I18n::Text SystemRowTitle(SystemPage::Row row) {
     case SystemPage::GameLanguage:      return Text::GameLanguage;
     case SystemPage::Region:            return Text::ConsoleRegion;
     case SystemPage::PerformanceStats:  return Text::PerformanceStats;
+    case SystemPage::UnlockFps:         return Text::UnlockFps;
     case SystemPage::AdultMods:         return Text::ModsAdult;
     case SystemPage::PulseSessions:     return Text::PulseSessions;
     case SystemPage::PlayTime:          return Text::PlayTimeTracking;
@@ -165,6 +169,7 @@ inline I18n::Text SystemRowHint(SystemPage::Row row) {
     case SystemPage::GameLanguage:      return Text::GameLanguageHint;
     case SystemPage::Region:            return Text::ConsoleRegionHint;
     case SystemPage::PerformanceStats:  return Text::PerformanceStatsHint;
+    case SystemPage::UnlockFps:         return Text::UnlockFpsHint;
     case SystemPage::AdultMods:         return Text::ModsAdultHint;
     case SystemPage::PulseSessions:     return Text::PulseSessionsHint;
     case SystemPage::PlayTime:          return Text::PlayTimeTrackingHint;
@@ -195,6 +200,8 @@ inline std::wstring SystemRowValue(const SystemPage& page, SystemPage::Row row) 
         return automatic(I18n::Tr(RegionText(RegionForLocale(page.locale))));
     case SystemPage::PerformanceStats:
         return std::wstring{I18n::Tr(settings.show_performance_stats ? Text::Yes : Text::No)};
+    case SystemPage::UnlockFps:
+        return std::wstring{I18n::Tr(settings.unlock_fps ? Text::Yes : Text::No)};
     case SystemPage::AdultMods:
         return std::wstring{I18n::Tr(settings.show_adult_mods ? Text::ModsAdultShown : Text::ModsAdultHidden)};
     case SystemPage::PulseSessions:

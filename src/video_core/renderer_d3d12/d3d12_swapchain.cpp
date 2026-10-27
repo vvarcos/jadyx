@@ -15,7 +15,14 @@ namespace {
 /// device): the frame is dropped, and a lost device is reported by the next submission.
 constexpr DWORD FRAME_WAIT_TIMEOUT_MS = 1000;
 
+/// Set by "vsync=0": present immediately and never wait for the display.
+std::atomic_bool vsync_off{};
+
 } // Anonymous namespace
+
+void SetVsyncOff(bool off) {
+    vsync_off.store(off, std::memory_order_relaxed);
+}
 
 Swapchain::Swapchain(const Device& device, IUnknown* core_window, u32 width_, u32 height_)
     : width{width_}, height{height_} {
@@ -72,7 +79,7 @@ u32 Swapchain::CurrentIndex() const {
 }
 
 bool Swapchain::WaitForFrame() {
-    if (frame_latency_waitable == nullptr) {
+    if (frame_latency_waitable == nullptr || vsync_off.load(std::memory_order_relaxed)) {
         return true;
     }
     const VideoCore::FrameTrace::ScopedSpan trace_wait{
@@ -90,7 +97,8 @@ bool Swapchain::WaitForFrame() {
 void Swapchain::Present() {
     const VideoCore::FrameTrace::ScopedSpan trace_present{
         VideoCore::FrameTrace::Event::HostPresentLong, 0};
-    ThrowIfFailed(swapchain->Present(1, 0), "IDXGISwapChain::Present");
+    ThrowIfFailed(swapchain->Present(vsync_off.load(std::memory_order_relaxed) ? 0u : 1u, 0),
+                  "IDXGISwapChain::Present");
 }
 
 } // namespace D3D12

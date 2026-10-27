@@ -82,6 +82,7 @@
 #include "video_core/gpu.h"
 #include "video_core/gpu_thread.h"
 #include "video_core/perf_counters.h"
+#include "video_core/readback_trace.h"
 #include "video_core/rasterizer_interface.h"
 #include "video_core/renderer_base.h"
 #include "video_core/renderer_d3d12/d3d12_menu_image.h"
@@ -155,6 +156,7 @@ void SetDrawSamplerReuse(bool enabled);
 enum class PixelShaderScratchMode : u8; // d3d12_local_memory_scratch.h: Auto, Uav, Native
 void SetPixelShaderScratchMode(PixelShaderScratchMode mode);
 void SetAsyncRecording(bool enabled);          // d3d12_scheduler.h
+void SetVsyncOff(bool off);                    // d3d12_swapchain.h
 using AppMemoryQuery = bool (*)(u64& used, u64& limit); // d3d12_device.h
 void SetAppMemoryQuery(AppMemoryQuery query);            // d3d12_device.h
 } // namespace D3D12
@@ -312,6 +314,8 @@ struct BootConfig {
     bool null_audio{};
     /// Diagnostic only: ignore requests for 30 Hz presentation ("force_swap_interval=1").
     bool force_swap_interval_one{};
+    /// Diagnostic only, PC: present with no sync interval ("vsync=0"), to measure headroom.
+    bool vsync_off{};
     /// Copy and present frames on a thread of their own, so the GPU thread never waits for the
     /// display ("async_present=0" presents on the GPU thread, as Present used to).
     bool async_present{true};
@@ -322,11 +326,15 @@ struct BootConfig {
     /// them ("async_record=0" makes them on the GPU thread, as before the recorder).
     bool async_record{true};
     /// Keep the previous draw's pipeline while no register its key reads changed
-    /// ("pipeline_key_reuse=1"; "=check" refreshes the key and logs every reuse that would have
-    /// drawn with another pipeline). Off by default until a gain is measured on the console.
-    D3D12::PipelineKeyTracking::Mode pipeline_key_reuse{D3D12::PipelineKeyTracking::Mode::Off};
+    /// ("pipeline_key_reuse=0" turns it off, "=check" refreshes the key and logs every reuse that
+    /// would have drawn with another pipeline). On by default: refreshing the key for every draw is
+    /// most of the per-draw pipeline cost, and the reuse is verified by "=check" on demand.
+    D3D12::PipelineKeyTracking::Mode pipeline_key_reuse{D3D12::PipelineKeyTracking::Mode::On};
     bool upload_copy{}; ///< Experimental short uniform copies; default off.
-    bool draw_sampler_reuse{}; ///< Experimental gather-local TSC resolution; default off.
+    bool draw_sampler_reuse{true}; ///< Gather-local TSC resolution reuse; "=0" turns it off.
+    /// Size every readback hand-back to the guest ("readback_trace=1"), a diagnostic that costs
+    /// host time per event; off unless a stale or empty download has to be told apart.
+    bool readback_trace{};
     /// Where pixel shaders keep large local memory: 0 auto (boot probe), 1 pool, 2 private arrays
     /// ("ps_scratch=auto|uav|native", D3D12::PixelShaderScratchMode).
     u8 ps_scratch{};
@@ -523,13 +531,21 @@ int RunHeadlessBoot(const std::string& nro_path, const BootSurface& surface,
             version.Major, version.Minor, version.Build, version.Revision, config.memory_limit_mib,
             config.async_record, config.async_present, config.async_shaders));
     }
-    VideoCore::Perf::SetForceSwapIntervalOne(config.force_swap_interval_one);
+    // "Unlock FPS" (Settings > System) does both halves: the guest stops asking for two vsyncs per
+    // presented frame, and the swapchain stops waiting for the display. Either boot.cfg switch can
+    // force it for a test too.
+    const bool unlock_fps = config.vsync_off || LoadSystemSettings().unlock_fps;
+    VideoCore::Perf::SetForceSwapIntervalOne(config.force_swap_interval_one || unlock_fps);
+    D3D12::SetVsyncOff(unlock_fps);
+    LOG_INFO(Frontend, "System: unlock FPS {} (guest swap interval one, host vsync {})",
+             unlock_fps, unlock_fps ? "off" : "on");
     Settings::values.async_presentation.SetValue(config.async_present);
     if (config.upscaling) ApplyUpscaling(*config.upscaling); // before the renderer exists
     D3D12::SetAsyncRecording(config.async_record);
     D3D12::PipelineKeyTracking::SetMode(config.pipeline_key_reuse);
     D3D12::SetUniformUploadCopy(config.upload_copy);
     D3D12::SetDrawSamplerReuse(config.draw_sampler_reuse);
+    VideoCommon::ReadbackTrace::SetEnabled(config.readback_trace);
     D3D12::SetPixelShaderScratchMode(static_cast<D3D12::PixelShaderScratchMode>(config.ps_scratch));
     if (config.debug_layer) {
         Settings::values.renderer_debug = true;
@@ -2612,12 +2628,18 @@ struct BootView : implements<BootView, IFrameworkViewSource, IFrameworkView> {
                         } else if (line == "gpu_profile=1") {
                             config.gpu_profile = true;
                             WriteDiag("boot.cfg: detailed D3D12 GPU-thread profiling enabled");
+                        } else if (line == "readback_trace=1") {
+                            config.readback_trace = true;
+                            WriteDiag("boot.cfg: readback trace enabled");
                         } else if (line == "upload_copy=1") {
                             config.upload_copy = true;
                             WriteDiag("boot.cfg: short uniform write-combined copy enabled");
                         } else if (line == "draw_sampler_reuse=1") {
                             config.draw_sampler_reuse = true;
                             WriteDiag("boot.cfg: draw-local sampler resolution reuse enabled");
+                        } else if (line == "draw_sampler_reuse=0") {
+                            config.draw_sampler_reuse = false;
+                            WriteDiag("boot.cfg: draw-local sampler resolution reuse disabled");
                         } else if (line == "ps_scratch=auto" || line == "ps_scratch=uav" ||
                                    line == "ps_scratch=native") {
                             config.ps_scratch = line == "ps_scratch=uav"      ? 1
@@ -2751,6 +2773,9 @@ struct BootView : implements<BootView, IFrameworkViewSource, IFrameworkView> {
                         } else if (line == "force_swap_interval=1") {
                             config.force_swap_interval_one = true;
                             WriteDiag("boot.cfg: forcing guest swap intervals above one to one");
+                        } else if (line == "vsync=0") {
+                            config.vsync_off = true;
+                            WriteDiag("boot.cfg: presenting with no sync interval (diagnostic)");
                         } else if (line == "debug_layer=1" || line == "debug_layer=gbv") {
                             config.debug_layer = true;
                             config.gpu_validation = line == "debug_layer=gbv";

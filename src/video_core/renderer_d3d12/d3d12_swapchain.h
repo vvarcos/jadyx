@@ -60,4 +60,9 @@ private:
     u32 height;
 };
 
+/// Diagnostic ("vsync=0" in boot.cfg, PC only): present with no sync interval and stop throttling
+/// on the frame-latency waitable, so the display never paces the guest. It shows how much headroom
+/// a scene has, at the cost of tearing; the console ignores it (Game mode has no tearing).
+void SetVsyncOff(bool off);
+
 } // namespace D3D12
