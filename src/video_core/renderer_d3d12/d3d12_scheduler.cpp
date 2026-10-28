@@ -265,15 +265,19 @@ u64 Scheduler::Flush() {
     // runs the same sequence the renderer asked for. The earliest lists go out without a signal
     // of their own.
     for (size_t index = 0; index <= highest_list; ++index) {
+        if (lists[index].stream) {
+            lists[index].recorder->Dispatch();
+        }
+    }
+    // The submission happens here, in index order: that order is what keeps the GPU running the
+    // draws in the sequence the guest asked for, while each list was recorded in parallel above.
+    for (size_t index = 0; index <= highest_list; ++index) {
         ListSlot& slot = lists[index];
         if (!slot.stream) {
             continue;
         }
-        const bool signal = index == highest_list;
-        slot.stream->Record([this, index, signaled, signal](ID3D12GraphicsCommandList* list) {
-            SubmitRecorded(index, list, signaled, signal);
-        });
-        slot.recorder->Dispatch();
+        slot.recorder->WaitIdle();
+        SubmitRecorded(index, slot.list.Get(), signaled, index == highest_list);
     }
     VideoCore::Perf::Add(VideoCore::Perf::Counter::Submits, 1);
     {
