@@ -110,7 +110,7 @@ enum class Counter : size_t {
     DrawPipelineKeyNs,     ///< of which: refreshing the fixed key and finding the pipeline
     DrawDescriptorAcquireNs, ///< of the descriptor phase: reserving the table range in the ring
     DrawStageBuffersNs,    ///< of the descriptor phase: each stage's host-side constant buffers
-    DrawUniformBindNs,     ///< of that: the whole BindHostGraphicsUniformBuffer of one cbuf
+    DrawUniformBindNs,     ///< of that: the whole BindHostGraphicsUniformBuffers of a stage
     DrawUniformSetupNs,    ///< of a cbuf: reading its state, resolving the buffer, the LRU touch
     DrawUniformDecideNs,   ///< of a cbuf: streamed or cached, and whether it has to be re-bound
     DrawUniformStreamNs,   ///< of a cbuf: staging the guest bytes and recording the CBV
@@ -380,11 +380,13 @@ private:
     std::chrono::steady_clock::time_point last{};
 };
 
-/// Adds the scope's duration to a nanosecond counter.
+/// Adds the scope's duration to a nanosecond counter. Counter::Count keeps the timer off, for
+/// call sites that only time some calls and would otherwise branch around it.
 class ScopedNsTimer {
 public:
     explicit ScopedNsTimer(Counter ns_counter_)
-        : ns_counter{ns_counter_}, enabled{DetailedGpuProfileEnabled()} {
+        : ns_counter{ns_counter_},
+          enabled{ns_counter_ != Counter::Count && DetailedGpuProfileEnabled()} {
         if (enabled) {
             start = std::chrono::steady_clock::now();
         }

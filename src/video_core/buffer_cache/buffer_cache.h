@@ -440,11 +440,13 @@ void BufferCache<P>::BindHostStageBuffers(size_t stage, bool sampled_cbufs, bool
     if (sampled_cbufs && first_stage) {
         VideoCore::Perf::Add(VideoCore::Perf::Counter::CbvSampledDraws, 1);
     }
-    // The cbufs of a sampled draw also lap here, so the report can separate their share of the
-    // stage from the storage and texel buffers that follow.
-    VideoCore::Perf::LapTimer lap{sampled_cbufs && VideoCore::Perf::DetailedGpuProfileEnabled()};
+    // The cbufs of a sampled draw are timed whole (early returns included) and split per cbuf
+    // below, so the report can separate their share of the stage from the storage and texel
+    // buffers that follow. Counter::Count leaves the timer off outside the sampled draws.
+    VideoCore::Perf::ScopedNsTimer uniform_timer{
+        sampled_cbufs ? VideoCore::Perf::Counter::DrawUniformBindNs
+                      : VideoCore::Perf::Counter::Count};
     BindHostGraphicsUniformBuffers(stage, sampled_cbufs);
-    lap.Lap(VideoCore::Perf::Counter::DrawUniformBindNs);
     BindHostGraphicsStorageBuffers(stage);
     BindHostGraphicsTextureBuffers(stage);
 }
