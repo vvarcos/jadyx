@@ -22,6 +22,12 @@ namespace Service::Nvidia::Devices {
 
 class nvmap;
 
+/// Caps how often the guest may present ("frame_limit=<fps>", 0 for no cap). The emulator's own
+/// speed limiter is off in multicore builds, so with the host vsync unlocked a game that advances
+/// its simulation once per presented frame runs as fast as the emulator can go; this paces those
+/// presents to the rate the game was designed for.
+void SetFrameLimit(u32 fps);
+
 class nvdisp_disp0 final : public nvdevice {
 public:
     explicit nvdisp_disp0(Core::System& system_, NvCore::Container& core);

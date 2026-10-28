@@ -70,6 +70,7 @@
 #include "core/hle/kernel/k_memory_manager.h"
 #include "core/hle/kernel/k_process.h"
 #include "core/hle/service/acc/profile_manager.h"
+#include "core/hle/service/nvdrv/devices/nvdisp_disp0.h" // Devices::SetFrameLimit
 #include "core/hle/kernel/physical_core.h"
 #include "core/hle/service/am/applet_manager.h"
 #include "core/hle/service/am/frontend/applets.h"
@@ -348,6 +349,10 @@ struct BootConfig {
     /// learned margin). The spin is the price of a precise wake; on this timer it costs the host
     /// timing thread most of a core, so trading precision for it is a boot-time experiment.
     u32 timer_spin_us{};
+    /// Presented frames per second the guest is paced to ("frame_limit=<fps>", 0 for none). With the
+    /// host vsync off this is what keeps a frame-driven game at its designed speed.
+    u32 frame_limit{};
+    /// Guest swap interval > 1 forced to one ("force_swap_interval=1").
     bool timer_profile{}; ///< HostTiming waits only; opt-in, separate from draw profiling.
     /// File name of a game in LocalState\games to boot instead of boot.nro (package-appx.ps1 -Game).
     std::string game;
@@ -467,6 +472,7 @@ int RunHeadlessBoot(const std::string& nro_path, const BootSurface& surface,
     // Read by the host timing thread's first wait.
     Common::SetPreciseTimerSleeps(config.timer_sleep);
     Common::SetTimerSpinCap(std::chrono::microseconds{config.timer_spin_us});
+    Service::Nvidia::Devices::SetFrameLimit(config.frame_limit);
     Common::Windows::TimedWaitProfile::enabled.store(config.timer_profile, std::memory_order_relaxed);
     // Read by HostMemory when Core::System builds the DRAM, so it has to be set before that.
     // The 384-MiB Series experiment covered only 388 of 2637 MiB requested by Game C (15%). The
@@ -2791,6 +2797,19 @@ struct BootView : implements<BootView, IFrameworkViewSource, IFrameworkView> {
                                                             config.timer_spin_us));
                             } else {
                                 WriteDiag("boot.cfg: invalid timer_spin, ignored");
+                            }
+                        } else if (line.rfind("frame_limit=", 0) == 0) {
+                            const unsigned long parsed =
+                                std::strtoul(line.c_str() + 12, nullptr, 10);
+                            if (parsed <= 1000) {
+                                config.frame_limit = static_cast<u32>(parsed);
+                                WriteDiag(config.frame_limit == 0
+                                              ? "boot.cfg: presented frames not paced"
+                                              : fmt::format("boot.cfg: presented frames paced to "
+                                                            "{} per second",
+                                                            config.frame_limit));
+                            } else {
+                                WriteDiag("boot.cfg: invalid frame_limit, ignored");
                             }
                         } else if (line == "force_swap_interval=1") {
                             config.force_swap_interval_one = true;

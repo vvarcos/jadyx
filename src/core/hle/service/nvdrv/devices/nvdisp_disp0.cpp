@@ -4,6 +4,10 @@
 // SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <atomic>
+#include <chrono>
+#include <thread>
+
 #include <boost/container/small_vector.hpp>
 
 #include "common/adpf.h"
@@ -23,6 +27,9 @@ namespace Service::Nvidia::Devices {
 
 namespace {
 
+/// Presented frames per second the guest is paced to, 0 for none (see SetFrameLimit).
+std::atomic<u32> frame_limit_fps{};
+
 Tegra::BlendMode ConvertBlending(Service::Nvnflinger::LayerBlending blending) {
     switch (blending) {
     case Service::Nvnflinger::LayerBlending::None:
@@ -36,6 +43,10 @@ Tegra::BlendMode ConvertBlending(Service::Nvnflinger::LayerBlending blending) {
 }
 
 } // namespace
+
+void SetFrameLimit(u32 fps) {
+    frame_limit_fps.store(fps, std::memory_order_relaxed);
+}
 
 nvdisp_disp0::nvdisp_disp0(Core::System& system_, NvCore::Container& core)
     : nvdevice{system_}, container{core}, nvmap{core.GetNvMapFile()} {}
@@ -94,6 +105,22 @@ void nvdisp_disp0::Composite(std::span<const Nvnflinger::HwcLayer> sorted_layers
     system.GPU().RequestComposite(std::move(output_layers), std::move(output_fences));
     Common::ADPF::ReportFrameInterval();
     system.SpeedLimiter().DoSpeedLimiting(system.CoreTiming().GetGlobalTimeUs());
+    // The speed limiter above does nothing in multicore builds, so the frame cap is what keeps a
+    // game that steps once per presented frame at its designed rate when the host vsync is off.
+    if (const u32 fps = frame_limit_fps.load(std::memory_order_relaxed); fps != 0) {
+        using Clock = std::chrono::steady_clock;
+        static Clock::time_point next_present{};
+        const auto interval = std::chrono::duration_cast<Clock::duration>(
+            std::chrono::duration<double>(1.0 / static_cast<double>(fps)));
+        const Clock::time_point now = Clock::now();
+        if (next_present.time_since_epoch().count() == 0 || next_present < now - interval) {
+            // First frame, or the guest fell far behind: restart the cadence instead of trying to
+            // catch up a backlog it would then run as fast frames to burn down.
+            next_present = now;
+        }
+        next_present += interval;
+        std::this_thread::sleep_until(next_present);
+    }
     system.GetPerfStats().EndSystemFrame();
     system.GetPerfStats().BeginSystemFrame();
 }
