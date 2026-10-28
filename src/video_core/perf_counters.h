@@ -129,7 +129,8 @@ enum class Counter : size_t {
     CbvRootClamped, ///< root CBVs bound to zeros: the shader could read past the buffer
     CbvGraphicsBinds,   ///< BindHostGraphicsUniformBuffer calls (one per cbuf per draw)
     CbvSampledBinds,    ///< of which: on draws whose stage bindings are sampled for phase times
-    CbvSampledDraws,    ///< draws whose cbuf bindings were compared and timed
+    CbvSampledDraws,    ///< draws that were sampled (one in StageSampleRate)
+    CbvComparedDraws,   ///< draws whose cbuf bindings were fingerprinted and compared
     CbvRepeatedDraws,   ///< draws whose cbuf bindings were exactly the previous draw's
     CbvStreamBytes,     ///< guest bytes copied into staging for streamed cbufs
     CbvCachedBinds,     ///< cached cbufs that reached runtime.BindUniformBuffer

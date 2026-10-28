@@ -436,7 +436,10 @@ void BufferCache<P>::BindHostGeometryBuffers(bool is_indexed) {
 }
 
 template <class P>
-void BufferCache<P>::BindHostStageBuffers(size_t stage, bool sampled_cbufs) {
+void BufferCache<P>::BindHostStageBuffers(size_t stage, bool sampled_cbufs, bool first_stage) {
+    if (sampled_cbufs && first_stage) {
+        VideoCore::Perf::Add(VideoCore::Perf::Counter::CbvSampledDraws, 1);
+    }
     // The cbufs of a sampled draw also lap here, so the report can separate their share of the
     // stage from the storage and texel buffers that follow.
     VideoCore::Perf::LapTimer lap{sampled_cbufs && VideoCore::Perf::DetailedGpuProfileEnabled()};

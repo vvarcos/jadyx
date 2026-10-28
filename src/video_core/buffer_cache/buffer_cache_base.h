@@ -272,7 +272,8 @@ public:
 
     /// Uniform, storage and texel buffers of a stage. sampled_cbufs times the uniform share of the
     /// detailed profile on the draws the caller samples; ordinary draws pay no clocks per cbuf.
-    void BindHostStageBuffers(size_t stage, bool sampled_cbufs = false);
+    /// first_stage is true for the first stage the draw binds, which counts the sampled draws.
+    void BindHostStageBuffers(size_t stage, bool sampled_cbufs = false, bool first_stage = false);
 
     /// A draw, for the diagnostic that compares one draw's cbuf bindings with the previous draw's
     /// and counts the draws that rebind exactly the same ones. Costs a hash comparison per draw.
@@ -290,7 +291,7 @@ public:
             if (!count) {
                 return;
             }
-            VideoCore::Perf::Add(VideoCore::Perf::Counter::CbvSampledDraws, 1);
+            VideoCore::Perf::Add(VideoCore::Perf::Counter::CbvComparedDraws, 1);
             if (cache.cbuf_fingerprint == cache.last_cbuf_fingerprint) {
                 VideoCore::Perf::Add(VideoCore::Perf::Counter::CbvRepeatedDraws, 1);
             }

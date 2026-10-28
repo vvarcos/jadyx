@@ -610,6 +610,7 @@ void GraphicsPipeline::Configure(bool is_indexed, const PipelineBindContext& con
     u32 stage_binding = 0;
     const SamplerId* samplers_it = samplers.data();
     const ImageViewInOut* views_it = views.data();
+    bool first_bound_stage = true;
     for (size_t stage = 0; stage < NUM_STAGES; ++stage) {
         if (!HasStage(stage)) {
             continue;
@@ -618,7 +619,8 @@ void GraphicsPipeline::Configure(bool is_indexed, const PipelineBindContext& con
             const DrawMetrics::SampledStageBindingTimer binding_timer{sample_stage_bindings};
             const VideoCore::Perf::ScopedNsTimer timer{
                 VideoCore::Perf::Counter::DrawStageBuffersNs};
-            buffer_cache.BindHostStageBuffers(stage, sample_stage_bindings);
+            buffer_cache.BindHostStageBuffers(stage, sample_stage_bindings, first_bound_stage);
+            first_bound_stage = false;
         }
         const StageBindings& info = *stage_infos[stage];
         views_it += info.num_buffer_views;
