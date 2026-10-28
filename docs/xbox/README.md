@@ -35,6 +35,7 @@ en documentación histórica ya no son carpetas de entrega vigentes.
 - [Operaciones Fermi2D](xbox_fermi2d.md): diagnóstico 0.3.4.9 para identificar operación, ROP, superficies y ruta antes de corregir efectos.
 
 - [Rendimiento](xbox_performance.md): perfiles, optimizaciones y prioridades pendientes.
+- [Presentación, vsync y spins](xbox_vsync_pacing.md): el techo de 20 FPS era cuantización por vsync (tres refrescos por frame) y 1,1 núcleos en espera activa; 23–27,7 FPS con velocidad correcta, y por qué los timers por fase no miden nada por debajo de 1 µs.
 - [Preparación y reutilización de PSO](xbox_pipeline_preparation.md): identidad host, trabajo único, residencia por fence y gates Game A.
 - [Preparación CPU de draws](xbox_draw_preparation.md): baseline Game D, metadata, samplers y subasignación de uniform buffers.
 - [Memoria de texturas](xbox_texture_memory.md): packing, readbacks, staging y comparación con Vulkan.
