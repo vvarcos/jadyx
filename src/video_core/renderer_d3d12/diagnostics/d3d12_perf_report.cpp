@@ -158,7 +158,8 @@ std::string DescribeDrawCosts(const VideoCore::Perf::Snapshot& d, double interva
     return fmt::format(
         "draws {:.1f} ms ({:.1f} us each: textures {:.1f}, buffers {:.1f}, descriptors {:.1f}, "
         "targets {:.1f} [update {:.1f}, feedback {:.1f}, framebuffer {:.1f}, transitions {:.1f}], "
-        "samplers {:.1f}, record {:.1f}), clears {:.1f} ms, dispatches {:.1f} ms, "
+        "samplers {:.1f}, record {:.1f}, setup {:.1f} [key {:.1f}], acquire {:.1f}, "
+        "stage buffers {:.1f}), clears {:.1f} ms, dispatches {:.1f} ms, "
         "outside them {:.1f} ms | pipeline fast path {} hits / {} misses, {} key reuses ({} "
         "mismatched) | CBV {} ({:.1f} ms: "
         "{} streamed, {} persistent, {} null; {} root, {} root clamped), view copies {} "
@@ -182,7 +183,9 @@ std::string DescribeDrawCosts(const VideoCore::Perf::Snapshot& d, double interva
         per_draw(Counter::DrawTargetsNs), per_draw(Counter::DrawUpdateTargetsNs),
         per_draw(Counter::DrawFeedbackNs), per_draw(Counter::DrawFramebufferNs),
         per_draw(Counter::DrawImageTransitionsNs), per_draw(Counter::DrawSamplersNs),
-        per_draw(Counter::DrawRecordNs), clear_ms, dispatch_ms, outside,
+        per_draw(Counter::DrawRecordNs), per_draw(Counter::DrawPreConfigureNs),
+        per_draw(Counter::DrawPipelineKeyNs), per_draw(Counter::DrawDescriptorAcquireNs),
+        per_draw(Counter::DrawStageBuffersNs), clear_ms, dispatch_ms, outside,
         get(Counter::PipelineFastHits), get(Counter::PipelineFastMisses),
         get(Counter::PipelineKeyReuses), get(Counter::PipelineKeyMismatches),
         get(Counter::CbvCreates), ns_ms(Counter::CbvCreateNs), get(Counter::CbvStreamed),
@@ -345,6 +348,48 @@ void RendererD3D12::ReportPerfWindow(u32 frames, double total_ms) {
     if (const u64 checks = VideoCore::Perf::Get(delta, Counter::PipelineKeyChecks); checks != 0) {
         LOG_INFO(Render, "D3D12 pipeline key check: {} reusable draws verified, {} mismatched",
                  checks, VideoCore::Perf::Get(delta, Counter::PipelineKeyMismatches));
+    }
+    {
+        const auto get = [&delta](Counter counter) { return VideoCore::Perf::Get(delta, counter); };
+        const auto ms = [](u64 ns) { return static_cast<double>(ns) / 1e6; };
+        LOG_INFO(Render,
+                 "D3D12 submit detail: {} lists, close {:.1f} ms, execute {:.1f} ms, garbage {:.1f} ms",
+                 get(Counter::SubmitLists), ms(get(Counter::SubmitCloseNs)),
+                 ms(get(Counter::SubmitExecuteNs)), ms(get(Counter::SubmitGarbageNs)));
+        LOG_INFO(Render,
+                 "D3D12 draw detail: flush cache {:.1f} ms, pipeline lookup {:.1f} ms, predicate "
+                 "{:.1f} ms, tick work {:.1f} ms, attachments {:.1f} ms, bind state {:.1f} ms, "
+                 "finish targets {:.1f} ms, descriptor acquire {:.1f} ms, stage buffers {:.1f} ms "
+                 "[cbufs {:.1f} ms], table finalize {:.1f} ms",
+                 ms(get(Counter::DrawFlushCacheNs)), ms(get(Counter::DrawPipelineLookupNs)),
+                 ms(get(Counter::DrawPredicateNs)), ms(get(Counter::DrawTickWorkNs)),
+                 ms(get(Counter::DrawPrepareAttachmentsNs)), ms(get(Counter::DrawBindStateNs)),
+                 ms(get(Counter::DrawFinishTargetsNs)), ms(get(Counter::DrawDescriptorAcquireNs)),
+                 ms(get(Counter::DrawStageBuffersNs)), ms(get(Counter::DrawUniformBindNs)),
+                 ms(get(Counter::DrawTableFinalizeNs)));
+        // The per-cbuf phases only lap on the draws whose stage bindings are sampled, so they are
+        // reported per cbuf sampled: multiply by a draw's cbufs for its share of the phase time.
+        const u64 sampled_cbufs = get(Counter::CbvSampledBinds);
+        const auto per_cbuf = [&](Counter counter) {
+            return sampled_cbufs != 0 ? static_cast<double>(get(counter)) / 1000.0 /
+                                            static_cast<double>(sampled_cbufs)
+                                      : 0.0;
+        };
+        LOG_INFO(Render,
+                 "D3D12 cbufs: {} bound ({} draws, {:.2f} each; {} repeat the previous draw's), {} "
+                 "streamed ({} <=256 B, {} >4 KiB, {:.2f} MiB copied), {} cached ({} uploaded guest "
+                 "bytes); sampled {} cbufs: setup {:.2f} us, decide {:.2f} us, stream {:.2f} us, "
+                 "cached {:.2f} us",
+                 get(Counter::CbvGraphicsBinds), get(Counter::Draws),
+                 static_cast<double>(get(Counter::CbvGraphicsBinds)) /
+                     static_cast<double>(std::max<u64>(1, get(Counter::Draws))),
+                 get(Counter::CbvRepeatedDraws),
+                 get(Counter::CbvStreamed), get(Counter::CbvStreamSmall),
+                 get(Counter::CbvStreamLarge),
+                 static_cast<double>(get(Counter::CbvStreamBytes)) / (1024.0 * 1024.0),
+                 get(Counter::CbvCachedBinds), get(Counter::CbvCachedUploads), sampled_cbufs,
+                 per_cbuf(Counter::DrawUniformSetupNs), per_cbuf(Counter::DrawUniformDecideNs),
+                 per_cbuf(Counter::DrawUniformStreamNs), per_cbuf(Counter::DrawUniformCacheNs));
     }
     {
         const auto get = [&delta](Counter counter) { return VideoCore::Perf::Get(delta, counter); };

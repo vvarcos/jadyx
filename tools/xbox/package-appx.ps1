@@ -218,6 +218,11 @@ if ($BootNro -or $gameName -or $BootCfg.Count -gt 0) {
     Write-Warning "No -BootNro given. The app will activate, fail to load the NRO and log status 2 to jadyx_diag.txt."
 }
 
+# Grant AppContainer read/execute access to the layout so the app can read its own files (boot.cfg, boot.nro, etc.)
+# This is required because the layout is recreated on every package-appx run. The AppContainer SID is S-1-15-2-1.
+Write-Host "icacls   : granting AppContainer access to layout"
+& icacls $layout /grant "*S-1-15-2-1:(OI)(CI)RX" /T /Q | Out-Null
+
 # Publisher mismatch between manifest and cert is the #1 sideload rejection; fail loudly here.
 [xml]$mf = Get-Content (Join-Path $layout "AppxManifest.xml") -Raw
 if ($mf.Package.Identity.Publisher -ne $PublisherCN) {

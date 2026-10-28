@@ -39,6 +39,7 @@
 #include "video_core/engines/kepler_compute.h"
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/memory_manager.h"
+#include "video_core/perf_counters.h"
 #include "video_core/surface.h"
 #include "video_core/texture_cache/types.h"
 
@@ -269,7 +270,36 @@ public:
 
     void BindHostGeometryBuffers(bool is_indexed);
 
-    void BindHostStageBuffers(size_t stage);
+    /// Uniform, storage and texel buffers of a stage. sampled_cbufs times the uniform share of the
+    /// detailed profile on the draws the caller samples; ordinary draws pay no clocks per cbuf.
+    void BindHostStageBuffers(size_t stage, bool sampled_cbufs = false);
+
+    /// A draw, for the diagnostic that compares one draw's cbuf bindings with the previous draw's
+    /// and counts the draws that rebind exactly the same ones. Costs a hash comparison per draw.
+    class CbufBindsScope {
+    public:
+        explicit CbufBindsScope(BufferCache& cache_, bool count_)
+            : cache{cache_}, count{count_} {
+            if (count) {
+                cache.cbuf_fingerprint = CbufFingerprintSeed;
+            }
+        }
+        CbufBindsScope(const CbufBindsScope&) = delete;
+        CbufBindsScope& operator=(const CbufBindsScope&) = delete;
+        ~CbufBindsScope() {
+            if (!count) {
+                return;
+            }
+            if (cache.cbuf_fingerprint == cache.last_cbuf_fingerprint) {
+                VideoCore::Perf::Add(VideoCore::Perf::Counter::CbvRepeatedDraws, 1);
+            }
+            cache.last_cbuf_fingerprint = cache.cbuf_fingerprint;
+        }
+
+    private:
+        BufferCache& cache;
+        bool count;
+    };
 
     void BindHostComputeBuffers();
 
@@ -398,9 +428,12 @@ private:
 
     void BindHostDrawIndirectBuffers();
 
-    void BindHostGraphicsUniformBuffers(size_t stage);
+    /// sampled_cbufs times each cbuf of the stage in the detailed profile; the caller passes true
+    /// on the draws it samples, so ordinary draws pay no clocks per cbuf.
+    void BindHostGraphicsUniformBuffers(size_t stage, bool sampled_cbufs = false);
 
-    void BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 binding_index, bool needs_bind);
+    void BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 binding_index,
+                                       bool needs_bind, bool sampled_cbufs);
 
     void BindHostGraphicsStorageBuffers(size_t stage);
 
@@ -560,6 +593,12 @@ private:
 
     std::array<BufferId, ((1ULL << 34) >> CACHING_PAGEBITS)> page_table;
     Common::ScratchBuffer<u8> tmp_buffer;
+
+    /// FNV-1a over the cbuf bindings of the draw being set up, and the previous draw's (see
+    /// CbufBindsScope). Only maintained while a scope counts.
+    static constexpr u64 CbufFingerprintSeed = 0xcbf29ce484222325ULL;
+    u64 cbuf_fingerprint = CbufFingerprintSeed;
+    u64 last_cbuf_fingerprint = CbufFingerprintSeed;
 };
 
 } // namespace VideoCommon

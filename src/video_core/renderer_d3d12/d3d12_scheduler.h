@@ -59,11 +59,16 @@ public:
 
     /// Lists one tick may be recorded into. The renderer asks for more than one only when chunked
     /// recording is on; each is submitted in order, so the GPU sees the same sequence.
-    static constexpr size_t MAX_LISTS = 2;
+    static constexpr size_t MAX_LISTS = 8;
 
     /// Records the rest of this tick into list index (created on first use). Its state starts
     /// empty: whoever records into it sets everything again. Lists are submitted in index order.
     void SelectList(size_t index);
+
+    /// Index of the list being recorded into.
+    [[nodiscard]] size_t ActiveList() const noexcept {
+        return active_list;
+    }
 
     /// Graphics and compute share one PSO binding on a direct list. All users, including internal
     /// texture conversions, must go through this cache so the next draw restores its graphics PSO.

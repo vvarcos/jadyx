@@ -98,6 +98,23 @@ enum class Counter : size_t {
     DrawImageTransitionsNs,
     DrawSamplersNs,        ///< the sampler table
     DrawRecordNs,          ///< preparing attachments and recording state and the draw
+    DrawFlushCacheNs,      ///< of a draw: flushing the caching allocator before it
+    DrawPipelineLookupNs,  ///< of a draw: finding the pipeline (key refresh included)
+    DrawPredicateNs,       ///< of a draw: the conditional-rendering scope around the draw call
+    DrawTickWorkNs,        ///< of a draw: the GPU tick that follows it
+    DrawPrepareAttachmentsNs, ///< of a draw: transitioning the render targets it writes
+    DrawBindStateNs,       ///< of a draw: render targets, viewport, geometry and root arguments
+    DrawFinishTargetsNs,   ///< of a draw: releasing the compatible draw targets
+    DrawTableFinalizeNs,   ///< of the descriptor phase: hashing/looking up and writing the table
+    DrawPreConfigureNs,    ///< of a draw: everything before Configure (caches, pipeline key, locks)
+    DrawPipelineKeyNs,     ///< of which: refreshing the fixed key and finding the pipeline
+    DrawDescriptorAcquireNs, ///< of the descriptor phase: reserving the table range in the ring
+    DrawStageBuffersNs,    ///< of the descriptor phase: each stage's host-side constant buffers
+    DrawUniformBindNs,     ///< of that: the whole BindHostGraphicsUniformBuffer of one cbuf
+    DrawUniformSetupNs,    ///< of a cbuf: reading its state, resolving the buffer, the LRU touch
+    DrawUniformDecideNs,   ///< of a cbuf: streamed or cached, and whether it has to be re-bound
+    DrawUniformStreamNs,   ///< of a cbuf: staging the guest bytes and recording the CBV
+    DrawUniformCacheNs,    ///< of a cbuf: uploading into the cached buffer and its descriptor
     PipelineFastHits,      ///< transition-cache hits in CurrentGraphicsPipeline
     PipelineFastMisses,
     PipelineKeyReuses,     ///< draws that kept the previous pipeline without refreshing the key
@@ -110,12 +127,23 @@ enum class Counter : size_t {
     CbvNull,
     CbvRoot,        ///< bound as root CBVs instead of table descriptors
     CbvRootClamped, ///< root CBVs bound to zeros: the shader could read past the buffer
+    CbvGraphicsBinds,   ///< BindHostGraphicsUniformBuffer calls (one per cbuf per draw)
+    CbvSampledBinds,    ///< of which: on draws whose stage bindings are sampled for phase times
+    CbvRepeatedDraws,   ///< draws whose cbuf bindings were exactly the previous draw's
+    CbvStreamBytes,     ///< guest bytes copied into staging for streamed cbufs
+    CbvCachedBinds,     ///< cached cbufs that reached runtime.BindUniformBuffer
+    CbvCachedUploads,   ///< of which: the cached buffer had to take guest bytes first
+    CbvStreamSmall,     ///< streamed cbufs of at most 256 bytes
+    CbvStreamLarge,     ///< of which: more than 4 KiB (its own staging request)
     ViewCopyNs,
     ViewCopies,
     DescriptorTables,       ///< resource tables a draw or dispatch asked for
     DescriptorTableReuses,  ///< of them, served by an identical table of the same list
     SubmitListNs,
     SubmitLists,
+    SubmitCloseNs,   ///< closing the recorded list: the driver processes everything recorded
+    SubmitExecuteNs, ///< ExecuteCommandLists and the queue signal
+    SubmitGarbageNs, ///< deferred releases collected right after a submit
     GpuTickNs,
     GpuTicks,
     CacheInvalidationNs,
@@ -323,9 +351,12 @@ private:
 
 /// Splits a function into consecutive phases: each Lap adds the nanoseconds since the previous one
 /// (the phases of a draw last a few microseconds, too short to truncate to microseconds).
+/// The constructor's flag overrides the detailed-profile check, for phases that are only timed on
+/// the calls the caller samples (a clock pair per call would perturb the phases it splits).
 class LapTimer {
 public:
-    LapTimer() : enabled{DetailedGpuProfileEnabled()} {
+    LapTimer() : LapTimer(DetailedGpuProfileEnabled()) {}
+    explicit LapTimer(bool enabled_) : enabled{enabled_} {
         if (enabled) {
             last = std::chrono::steady_clock::now();
         }

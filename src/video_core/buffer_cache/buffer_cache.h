@@ -15,6 +15,7 @@
 #include "video_core/buffer_cache/buffer_cache_base.h"
 #include "video_core/guest_memory.h"
 #include "video_core/host1x/gpu_device_memory_manager.h"
+#include "video_core/perf_counters.h"
 #include "video_core/readback_trace.h"
 #include "video_core/texture_cache/util.h"
 
@@ -435,8 +436,12 @@ void BufferCache<P>::BindHostGeometryBuffers(bool is_indexed) {
 }
 
 template <class P>
-void BufferCache<P>::BindHostStageBuffers(size_t stage) {
-    BindHostGraphicsUniformBuffers(stage);
+void BufferCache<P>::BindHostStageBuffers(size_t stage, bool sampled_cbufs) {
+    // The cbufs of a sampled draw also lap here, so the report can separate their share of the
+    // stage from the storage and texel buffers that follow.
+    VideoCore::Perf::LapTimer lap{sampled_cbufs && VideoCore::Perf::DetailedGpuProfileEnabled()};
+    BindHostGraphicsUniformBuffers(stage, sampled_cbufs);
+    lap.Lap(VideoCore::Perf::Counter::DrawUniformBindNs);
     BindHostGraphicsStorageBuffers(stage);
     BindHostGraphicsTextureBuffers(stage);
 }
@@ -970,7 +975,7 @@ void BufferCache<P>::BindHostDrawIndirectBuffers() {
 }
 
 template <class P>
-void BufferCache<P>::BindHostGraphicsUniformBuffers(size_t stage) {
+void BufferCache<P>::BindHostGraphicsUniformBuffers(size_t stage, bool sampled_cbufs) {
     u32 dirty = ~0U;
     if constexpr (HAS_PERSISTENT_UNIFORM_BUFFER_BINDINGS) {
         dirty = std::exchange(channel_state->dirty_uniform_buffers[stage], 0);
@@ -978,7 +983,7 @@ void BufferCache<P>::BindHostGraphicsUniformBuffers(size_t stage) {
     u32 binding_index = 0;
     ForEachEnabledBit(channel_state->enabled_uniform_buffer_masks[stage], [&](u32 index) {
         const bool needs_bind = ((dirty >> index) & 1) != 0;
-        BindHostGraphicsUniformBuffer(stage, index, binding_index, needs_bind);
+        BindHostGraphicsUniformBuffer(stage, index, binding_index, needs_bind, sampled_cbufs);
         if constexpr (NEEDS_BIND_UNIFORM_INDEX) {
             ++binding_index;
         }
@@ -986,15 +991,34 @@ void BufferCache<P>::BindHostGraphicsUniformBuffers(size_t stage) {
 }
 
 template <class P>
-void BufferCache<P>::BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 binding_index, bool needs_bind) {
+void BufferCache<P>::BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 binding_index,
+                                                   bool needs_bind, bool sampled_cbufs) {
+    using namespace VideoCore::Perf;
     ++channel_state->uniform_cache_shots[0];
+    // One lap timer for the four phases of a cbuf, on sampled draws only: the caller times the
+    // whole loop on every draw, and a clock pair per cbuf would cost more than the phases.
+    VideoCore::Perf::LapTimer lap{sampled_cbufs && DetailedGpuProfileEnabled()};
     const Binding& binding = channel_state->uniform_buffers[stage][index];
     const DAddr device_addr = binding.device_addr;
     const u32 size = (std::min)(binding.size, (*channel_state->uniform_buffer_sizes)[stage][index]);
     Buffer& buffer = slot_buffers[binding.buffer_id];
     TouchBuffer(buffer, binding.buffer_id);
+    if (sampled_cbufs) {
+        Add(Counter::CbvSampledBinds, 1);
+    }
+    if (DetailedGpuProfileEnabled()) {
+        Add(Counter::CbvGraphicsBinds, 1);
+        // Fingerprint of this draw's cbuf bindings, to count the draws that rebind exactly the
+        // same ones (their streamed bytes are identical, so a cache for them is what pays off).
+        cbuf_fingerprint = (cbuf_fingerprint ^
+                            ((static_cast<u64>(stage) << 56) | (static_cast<u64>(index) << 48) |
+                             (static_cast<u64>(binding.buffer_id.Value()) << 32) |
+                             (device_addr ^ (static_cast<u64>(size) << 16)))) *
+                           0x100000001b3ULL;
+    }
     const bool has_host_buffer = binding.buffer_id != NULL_BUFFER_ID;
     const u32 offset = has_host_buffer ? buffer.Offset(device_addr) : 0;
+    lap.Lap(Counter::DrawUniformSetupNs);
     const bool needs_alignment_stream = [&]() {
         if constexpr (IS_OPENGL) {
             return false;
@@ -1016,6 +1040,7 @@ void BufferCache<P>::BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 
         || (has_host_buffer
             && (size <= channel_state->uniform_buffer_skip_cache_size || needs_padding)
             && !memory_tracker.IsRegionGpuModified(device_addr, size));
+    lap.Lap(Counter::DrawUniformDecideNs);
     if (use_fast_buffer) {
         if constexpr (IS_OPENGL) {
             if (runtime.HasFastBufferSubData()) {
@@ -1047,10 +1072,15 @@ void BufferCache<P>::BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 
         } else {
             device_memory.ReadBlockUnsafe(device_addr, span.data(), size);
         }
+        Add(Counter::CbvStreamBytes, size);
+        Add(size <= 256 ? Counter::CbvStreamSmall : Counter::CbvStreamLarge, 1);
+        lap.Lap(Counter::DrawUniformStreamNs);
         return;
     }
     // Classic cached path
-    if (SynchronizeBuffer(buffer, device_addr, size)) {
+    const bool uploaded = !SynchronizeBuffer(buffer, device_addr, size);
+    lap.Lap(Counter::DrawUniformCacheNs);
+    if (!uploaded) {
         ++channel_state->uniform_cache_hits[0];
     }
     // Skip binding if it's not needed and if the bound buffer is not the fast version
@@ -1077,6 +1107,11 @@ void BufferCache<P>::BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 
         runtime.BindUniformBuffer(buffer, offset, size);
     }
     channel_state->fast_bound_uniform_buffers[stage] &= ~(1u << binding_index);
+    Add(Counter::CbvCachedBinds, 1);
+    if (uploaded) {
+        Add(Counter::CbvCachedUploads, 1);
+    }
+    lap.Lap(Counter::DrawUniformBindNs);
 }
 
 template <class P>

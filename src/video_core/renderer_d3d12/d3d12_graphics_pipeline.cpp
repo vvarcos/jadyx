@@ -515,6 +515,10 @@ void GraphicsPipeline::Configure(bool is_indexed, const PipelineBindContext& con
     DrawSamplerCache<SamplerId> sampler_cache{DrawSamplerReuseEnabled()};
     const bool sample_stage_bindings = DrawMetrics::SampleStageBindings();
     VideoCore::Perf::LapTimer lap;
+    // Counts the draws that rebind exactly the previous draw's cbufs, which is the traffic a cbuf
+    // cache of the staging writes would remove.
+    const BufferCache::CbufBindsScope cbuf_scope{buffer_cache,
+                                                  VideoCore::Perf::DetailedGpuProfileEnabled()};
 
     texture_cache.SynchronizeDescriptors(false);
     buffer_cache.SetUniformBuffersState(enabled_uniform_buffer_masks, &uniform_buffer_sizes);
@@ -595,7 +599,10 @@ void GraphicsPipeline::Configure(bool is_indexed, const PipelineBindContext& con
     out.sampler_table = sampler_table.Table(context.sampler_heap);
     lap.Lap(VideoCore::Perf::Counter::DrawSamplersNs);
     GuestDescriptorQueue& queue = context.descriptor_queue;
-    queue.Acquire(layout.NumResourceDescriptors(), cbv_slots);
+    {
+        const VideoCore::Perf::ScopedNsTimer timer{VideoCore::Perf::Counter::DrawDescriptorAcquireNs};
+        queue.Acquire(layout.NumResourceDescriptors(), cbv_slots);
+    }
     ImageTransitionList image_transitions;
     bool uses_render_area = false;
     const bool has_integer_samplers = layout.IntegerSamplerIndex() != PipelineLayout::NO_TABLE;
@@ -609,7 +616,9 @@ void GraphicsPipeline::Configure(bool is_indexed, const PipelineBindContext& con
         }
         {
             const DrawMetrics::SampledStageBindingTimer binding_timer{sample_stage_bindings};
-            buffer_cache.BindHostStageBuffers(stage);
+            const VideoCore::Perf::ScopedNsTimer timer{
+                VideoCore::Perf::Counter::DrawStageBuffersNs};
+            buffer_cache.BindHostStageBuffers(stage, sample_stage_bindings);
         }
         const StageBindings& info = *stage_infos[stage];
         views_it += info.num_buffer_views;
@@ -701,7 +710,10 @@ void GraphicsPipeline::Configure(bool is_indexed, const PipelineBindContext& con
     }
     lap.Lap(VideoCore::Perf::Counter::DrawTargetsNs);
 
-    out.resource_table = queue.Table();
+    {
+        const VideoCore::Perf::ScopedNsTimer timer{VideoCore::Perf::Counter::DrawTableFinalizeNs};
+        out.resource_table = queue.Table();
+    }
     std::ranges::copy(queue.RootConstantBuffers(), out.root_cbvs.begin());
     out.integer_samplers = integer_samplers.Upload(buffer_cache);
     lap.Lap(VideoCore::Perf::Counter::DrawSamplersNs);

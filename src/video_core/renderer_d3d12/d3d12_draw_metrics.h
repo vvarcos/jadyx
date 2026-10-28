@@ -24,10 +24,11 @@ inline std::atomic<u64> stage_binding_samples{}, stage_binding_sample_ns{};
 
 // Sample all active stages of one draw in 64, avoiding aliasing to one shader stage.
 // This is nested elapsed time, not CPU busy time or a separate additive draw phase.
+inline constexpr u64 StageSampleRate = 64;
 inline bool SampleStageBindings() {
     if (!VideoCore::Perf::DetailedGpuProfileEnabled()) return false;
     static thread_local u32 sequence{};
-    return (++sequence & 63U) == 0;
+    return (++sequence % StageSampleRate) == 0;
 }
 class SampledStageBindingTimer {
 public:
