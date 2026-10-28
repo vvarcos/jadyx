@@ -109,7 +109,9 @@ enum class Counter : size_t {
     DrawPreConfigureNs,    ///< of a draw: everything before Configure (caches, pipeline key, locks)
     DrawPipelineKeyNs,     ///< of which: refreshing the fixed key and finding the pipeline
     DrawDescriptorAcquireNs, ///< of the descriptor phase: reserving the table range in the ring
+    DrawDescriptorBuildNs, ///< of it: from that reservation through writing the table
     DrawStageBuffersNs,    ///< of the descriptor phase: each stage's host-side constant buffers
+    CbvTablesFresh,        ///< descriptor tables written: no recent table matched
     DrawUniformBindNs,     ///< of that: the whole BindHostGraphicsUniformBuffers of a stage
     DrawUniformSetupNs,    ///< of a cbuf: reading its state, resolving the buffer, the LRU touch
     DrawUniformDecideNs,   ///< of a cbuf: streamed or cached, and whether it has to be re-bound

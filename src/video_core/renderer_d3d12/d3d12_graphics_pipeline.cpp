@@ -600,9 +600,12 @@ void GraphicsPipeline::Configure(bool is_indexed, const PipelineBindContext& con
     lap.Lap(VideoCore::Perf::Counter::DrawSamplersNs);
     GuestDescriptorQueue& queue = context.descriptor_queue;
     {
+        // Split off the ring reservation from the rest of the descriptor phase: it happens on
+        // every draw, while the table itself is only written when the recent ones do not match.
         const VideoCore::Perf::ScopedNsTimer timer{VideoCore::Perf::Counter::DrawDescriptorAcquireNs};
         queue.Acquire(layout.NumResourceDescriptors(), cbv_slots);
     }
+    VideoCore::Perf::LapTimer descriptor_lap;
     ImageTransitionList image_transitions;
     bool uses_render_area = false;
     const bool has_integer_samplers = layout.IntegerSamplerIndex() != PipelineLayout::NO_TABLE;
@@ -716,6 +719,10 @@ void GraphicsPipeline::Configure(bool is_indexed, const PipelineBindContext& con
         const VideoCore::Perf::ScopedNsTimer timer{VideoCore::Perf::Counter::DrawTableFinalizeNs};
         out.resource_table = queue.Table();
     }
+    // From the ring reservation to here: the stage bindings and the textures of the table. The
+    // reservation and the table itself are timed on their own, so what a reused table saves can
+    // be read off directly.
+    descriptor_lap.Lap(VideoCore::Perf::Counter::DrawDescriptorBuildNs);
     std::ranges::copy(queue.RootConstantBuffers(), out.root_cbvs.begin());
     out.integer_samplers = integer_samplers.Upload(buffer_cache);
     lap.Lap(VideoCore::Perf::Counter::DrawSamplersNs);

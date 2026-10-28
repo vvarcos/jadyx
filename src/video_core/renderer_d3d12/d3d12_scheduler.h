@@ -112,6 +112,11 @@ public:
         return tick <= known_gpu_tick.load(std::memory_order_acquire);
     }
 
+    /// The tick IsKnownFree compares against, for callers retiring several entries at once.
+    [[nodiscard]] u64 KnownGpuTickLoad() const noexcept {
+        return known_gpu_tick.load(std::memory_order_acquire);
+    }
+
     /// The last tick whose list reached the queue. Work submitted to the same queue by another
     /// thread (the present thread's copy) must wait for it first: a queue runs lists in
     /// submission order, so submitting first would run before the work it depends on.

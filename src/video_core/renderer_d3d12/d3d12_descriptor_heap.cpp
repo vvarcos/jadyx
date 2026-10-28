@@ -230,9 +230,12 @@ bool DescriptorRing::FindSpace(u32 count, u32& offset) const {
 }
 
 void DescriptorRing::Retire(bool read_fence) {
+    // One read of the completed tick for the whole walk: every in-flight entry of a list shares
+    // its tick, so the atomic does not have to be re-read per entry.
+    const u64 known = scheduler.KnownGpuTickLoad();
     while (!in_flight.empty()) {
         const u64 tick = in_flight.front().first;
-        if (!scheduler.IsKnownFree(tick) && !(read_fence && scheduler.IsFree(tick))) {
+        if (!(tick <= known) && !(read_fence && scheduler.IsFree(tick))) {
             break;
         }
         tail = in_flight.front().second;
@@ -295,6 +298,7 @@ D3D12_GPU_DESCRIPTOR_HANDLE GuestDescriptorQueue::Table() {
         range = {.cpu = {}, .gpu = recent->gpu};
         return range.gpu;
     }
+    VideoCore::Perf::AddDetailed(VideoCore::Perf::Counter::CbvTablesFresh, 1);
     WriteRecorded();
     if (written != count && !logged_mismatch) {
         LOG_ERROR(Render, "D3D12: descriptor table filled with {} of {} descriptors", written,
@@ -569,11 +573,18 @@ void GuestDescriptorQueue::FlushCopies() {
         return;
     }
     VideoCore::Perf::ScopedNsTimer timer{VideoCore::Perf::Counter::ViewCopyNs};
-    const UINT num = static_cast<UINT>(pending_copies.size());
-    device->CopyDescriptors(1, &copy_destination, &num, num, pending_copies.data(), nullptr,
-                            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    if (pending_copies.size() == 1) {
+        // The driver takes a cheaper path for one descriptor than for the range form, and a draw
+        // that samples one texture is the common case.
+        device->CopyDescriptorsSimple(1, copy_destination, pending_copies.front(),
+                                      D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    } else {
+        const UINT num = static_cast<UINT>(pending_copies.size());
+        device->CopyDescriptors(1, &copy_destination, &num, num, pending_copies.data(), nullptr,
+                                D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    }
     CheckRemovedAfterDescriptor(device, [&] {
-        return fmt::format("copying {} texture descriptors for a draw", num);
+        return fmt::format("copying {} texture descriptors for a draw", pending_copies.size());
     });
     pending_copies.clear();
 }
