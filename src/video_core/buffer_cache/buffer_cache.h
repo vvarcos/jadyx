@@ -1073,7 +1073,7 @@ void BufferCache<P>::BindHostGraphicsUniformBuffer(size_t stage, u32 index, u32 
             device_memory.ReadBlockUnsafe(device_addr, span.data(), size);
         }
         Add(Counter::CbvStreamBytes, size);
-        Add(size <= 256 ? Counter::CbvStreamSmall : Counter::CbvStreamLarge, 1);
+        Add(size <= 256 ? Counter::CbvStreamSmall : Counter::CbvStreamMedium, 1);
         lap.Lap(Counter::DrawUniformStreamNs);
         return;
     }

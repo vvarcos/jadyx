@@ -367,27 +367,36 @@ void RendererD3D12::ReportPerfWindow(u32 frames, double total_ms) {
                  ms(get(Counter::DrawFinishTargetsNs)), ms(get(Counter::DrawDescriptorAcquireNs)),
                  ms(get(Counter::DrawStageBuffersNs)), ms(get(Counter::DrawUniformBindNs)),
                  ms(get(Counter::DrawTableFinalizeNs)));
-        // The per-cbuf phases only lap on the draws whose stage bindings are sampled, so they are
-        // reported per cbuf sampled: multiply by a draw's cbufs for its share of the phase time.
+        // The per-cbuf phases only lap on the draws whose stage bindings are sampled (one in 64),
+        // so per_cbuf is the cost of one cbuf and cbufs_per_draw scales it back to a whole draw.
+        // Dividing by every cbuf bound instead would understate it 64 times.
         const u64 sampled_cbufs = get(Counter::CbvSampledBinds);
+        const u64 sampled_draws = std::max<u64>(1, get(Counter::CbvSampledDraws));
+        const double cbufs_per_draw =
+            static_cast<double>(sampled_cbufs) / static_cast<double>(sampled_draws);
         const auto per_cbuf = [&](Counter counter) {
-            return sampled_cbufs != 0 ? static_cast<double>(get(counter)) / 1000.0 /
+            return sampled_cbufs != 0 ? static_cast<double>(get(counter)) /
                                             static_cast<double>(sampled_cbufs)
                                       : 0.0;
         };
+        const double cbuf_draw_us =
+            (per_cbuf(Counter::DrawUniformSetupNs) + per_cbuf(Counter::DrawUniformDecideNs) +
+             per_cbuf(Counter::DrawUniformStreamNs) + per_cbuf(Counter::DrawUniformCacheNs)) *
+            cbufs_per_draw / 1000.0;
         LOG_INFO(Render,
                  "D3D12 cbufs: {} bound ({} draws, {:.2f} each; {} repeat the previous draw's), {} "
-                 "streamed ({} <=256 B, {} >4 KiB, {:.2f} MiB copied), {} cached ({} uploaded guest "
-                 "bytes); sampled {} cbufs: setup {:.2f} us, decide {:.2f} us, stream {:.2f} us, "
-                 "cached {:.2f} us",
+                 "streamed ({} <=256 B, {} >256 B, {:.2f} MiB copied), {} cached ({} uploaded guest "
+                 "bytes); sampled {} draws / {} cbufs: {:.2f} us of a draw [per cbuf setup {:.0f} ns, "
+                 "decide {:.0f} ns, stream {:.0f} ns, cached {:.0f} ns]",
                  get(Counter::CbvGraphicsBinds), get(Counter::Draws),
                  static_cast<double>(get(Counter::CbvGraphicsBinds)) /
                      static_cast<double>(std::max<u64>(1, get(Counter::Draws))),
                  get(Counter::CbvRepeatedDraws),
                  get(Counter::CbvStreamed), get(Counter::CbvStreamSmall),
-                 get(Counter::CbvStreamLarge),
+                 get(Counter::CbvStreamMedium),
                  static_cast<double>(get(Counter::CbvStreamBytes)) / (1024.0 * 1024.0),
-                 get(Counter::CbvCachedBinds), get(Counter::CbvCachedUploads), sampled_cbufs,
+                 get(Counter::CbvCachedBinds), get(Counter::CbvCachedUploads),
+                 get(Counter::CbvSampledDraws), sampled_cbufs, cbuf_draw_us,
                  per_cbuf(Counter::DrawUniformSetupNs), per_cbuf(Counter::DrawUniformDecideNs),
                  per_cbuf(Counter::DrawUniformStreamNs), per_cbuf(Counter::DrawUniformCacheNs));
     }

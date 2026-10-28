@@ -290,6 +290,7 @@ public:
             if (!count) {
                 return;
             }
+            VideoCore::Perf::Add(VideoCore::Perf::Counter::CbvSampledDraws, 1);
             if (cache.cbuf_fingerprint == cache.last_cbuf_fingerprint) {
                 VideoCore::Perf::Add(VideoCore::Perf::Counter::CbvRepeatedDraws, 1);
             }
