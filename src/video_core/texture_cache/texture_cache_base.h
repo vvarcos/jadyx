@@ -475,6 +475,11 @@ private:
     bool last_feedback_loop_result = false;
     FramebufferId last_framebuffer_id{};
     u64 last_framebuffer_serial = 0;
+    /// render_targets_serial the target views were last prepared for (see UpdateRenderTargets).
+    /// A serial that does not match forces the preparation; zero keeps the first draw preparing.
+    u64 prepared_targets_serial = ~u64{0};
+    /// frame_tick of that preparation: the LRU touch of the views is only a no-op within a frame.
+    u64 prepared_targets_frame = ~u64{0};
 
     ::Common::unordered_map<RenderTargets, FramebufferId> framebuffers;
     ::Common::unordered_map<u64, std::vector<ImageMapId>, Common::IdentityHash<u64>> page_table;

@@ -369,8 +369,9 @@ void RendererD3D12::ReportPerfWindow(u32 frames, double total_ms) {
                  ms(get(Counter::DrawDescriptorBuildNs)), ms(get(Counter::DrawStageBuffersNs)),
                  ms(get(Counter::DrawUniformBindNs)), ms(get(Counter::DrawStageRestNs)),
                  ms(get(Counter::DrawTableFinalizeNs)));
-        LOG_INFO(Render, "D3D12 table writes: {} fresh, {} reused",
-                 get(Counter::CbvTablesFresh), get(Counter::DescriptorTableReuses));
+        LOG_INFO(Render, "D3D12 table writes: {} fresh, {} reused | target preparations skipped {}",
+                 get(Counter::CbvTablesFresh), get(Counter::DescriptorTableReuses),
+                 get(Counter::TargetSkips));
         // The per-cbuf phases only lap on the draws whose stage bindings are sampled (one in 64),
         // so per_cbuf is the cost of one cbuf and cbufs_per_draw scales it back to a whole draw.
         // Dividing by every cbuf bound instead would understate it 64 times.

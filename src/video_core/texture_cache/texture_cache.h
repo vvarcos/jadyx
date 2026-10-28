@@ -522,12 +522,22 @@ void TextureCache<P>::UpdateRenderTargets(bool is_clear) {
     using namespace VideoCommon::Dirty;
     auto& flags = maxwell3d->dirty.flags;
     if (!flags[Dirty::RenderTargets]) {
+        // A repeat of the previous draw's targets within the same frame: refreshing them,
+        // synchronizing their aliases and touching their LRU entries again produces nothing (the
+        // touch already happened at this frame's tick). Clears still prepare, they invalidate.
+        if (!is_clear && prepared_targets_serial == render_targets_serial &&
+            prepared_targets_frame == frame_tick) {
+            VideoCore::Perf::AddDetailed(VideoCore::Perf::Counter::TargetSkips, 1);
+            return;
+        }
         for (size_t index = 0; index < NUM_RT; ++index) {
             ImageViewId& color_buffer_id = render_targets.color_buffer_ids[index];
             PrepareImageView(color_buffer_id, true, is_clear && IsFullClear(color_buffer_id));
         }
         const ImageViewId depth_buffer_id = render_targets.depth_buffer_id;
         PrepareImageView(depth_buffer_id, true, is_clear && IsFullClear(depth_buffer_id));
+        prepared_targets_serial = render_targets_serial;
+        prepared_targets_frame = frame_tick;
         return;
     }
 

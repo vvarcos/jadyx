@@ -112,6 +112,7 @@ enum class Counter : size_t {
     DrawDescriptorBuildNs, ///< of it: from that reservation through writing the table
     DrawStageBuffersNs,    ///< of the descriptor phase: each stage's host-side constant buffers
     CbvTablesFresh,        ///< descriptor tables written: no recent table matched
+    TargetSkips,           ///< UpdateRenderTargets calls served without preparing the views
     DrawUniformBindNs,     ///< of that: the whole BindHostGraphicsUniformBuffers of a stage
     DrawStageRestNs,       ///< of that: the stage's storage and texel buffers
     DrawUniformSetupNs,    ///< of a cbuf: reading its state, resolving the buffer, the LRU touch
