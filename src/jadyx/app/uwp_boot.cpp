@@ -344,6 +344,10 @@ struct BootConfig {
     /// Host timing waits sleep on a high-resolution timer and wait only its lateness on the CPU
     /// ("timer_sleep=0" waits the last timer tick on the CPU, as before).
     bool timer_sleep{true};
+    /// Caps the CPU spin before a timed wait's deadline ("timer_spin=<us>", 0 keeps the timer's
+    /// learned margin). The spin is the price of a precise wake; on this timer it costs the host
+    /// timing thread most of a core, so trading precision for it is a boot-time experiment.
+    u32 timer_spin_us{};
     bool timer_profile{}; ///< HostTiming waits only; opt-in, separate from draw profiling.
     /// File name of a game in LocalState\games to boot instead of boot.nro (package-appx.ps1 -Game).
     std::string game;
@@ -462,6 +466,7 @@ int RunHeadlessBoot(const std::string& nro_path, const BootSurface& surface,
     Kernel::PhysicalCore::SetIdleSpinPolicy(config.idle_spin);
     // Read by the host timing thread's first wait.
     Common::SetPreciseTimerSleeps(config.timer_sleep);
+    Common::SetTimerSpinCap(std::chrono::microseconds{config.timer_spin_us});
     Common::Windows::TimedWaitProfile::enabled.store(config.timer_profile, std::memory_order_relaxed);
     // Read by HostMemory when Core::System builds the DRAM, so it has to be set before that.
     // The 384-MiB Series experiment covered only 388 of 2637 MiB requested by Game C (15%). The
@@ -2774,6 +2779,19 @@ struct BootView : implements<BootView, IFrameworkViewSource, IFrameworkView> {
                             WriteDiag(std::string("boot.cfg: host timing sleeps on ") +
                                       (config.timer_sleep ? "a high-resolution timer"
                                                           : "timer ticks"));
+                        } else if (line.rfind("timer_spin=", 0) == 0) {
+                            const unsigned long parsed =
+                                std::strtoul(line.c_str() + 11, nullptr, 10);
+                            if (parsed <= 100'000) {
+                                config.timer_spin_us = static_cast<u32>(parsed);
+                                WriteDiag(config.timer_spin_us == 0
+                                              ? "boot.cfg: timed waits spin their whole margin"
+                                              : fmt::format("boot.cfg: timed waits spin at most "
+                                                            "{} us before the deadline",
+                                                            config.timer_spin_us));
+                            } else {
+                                WriteDiag("boot.cfg: invalid timer_spin, ignored");
+                            }
                         } else if (line == "force_swap_interval=1") {
                             config.force_swap_interval_one = true;
                             WriteDiag("boot.cfg: forcing guest swap intervals above one to one");

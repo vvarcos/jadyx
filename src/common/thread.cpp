@@ -633,6 +633,9 @@ namespace {
 
 std::atomic<bool> precise_timer_sleeps{true};
 
+/// CPU spin cap for a timed wait, 0 keeping the timer's full learned margin.
+std::atomic<s64> timer_spin_cap_ns{};
+
 /// How long before a deadline a wait stops sleeping in the OS and waits on the CPU instead: an OS
 /// wake lands on the next timer interrupt, so it can come up to one timer period late.
 std::chrono::nanoseconds PreciseWaitMargin() {
@@ -651,6 +654,14 @@ void SetPreciseTimerSleeps(bool enabled) {
 
 bool IsPreciseTimerSleeps() {
     return precise_timer_sleeps;
+}
+
+void SetTimerSpinCap(std::chrono::nanoseconds cap) {
+    timer_spin_cap_ns.store(cap.count(), std::memory_order_relaxed);
+}
+
+std::chrono::nanoseconds GetTimerSpinCap() {
+    return std::chrono::nanoseconds{timer_spin_cap_ns.load(std::memory_order_relaxed)};
 }
 
 void Event::WakeTimedWaiter() {
@@ -683,14 +694,19 @@ bool Event::WaitFor(const std::chrono::nanoseconds time) {
     if (timer) {
         profile.Margin(timer_slack->Margin());
         // Sleeps on the timer until its usual lateness before the deadline, re-sleeping after a
-        // wake that did not come from Set, and waits only that last stretch on the CPU.
+        // wake that did not come from Set, and waits only that last stretch on the CPU. The
+        // stretch can be capped (boot.cfg timer_spin): the learned lateness is the price of a
+        // precise wake, and on this timer it costs the waiting thread most of a core when the
+        // waits themselves are shorter than the margin.
         const s64 deadline_ns = (clock.GetTimeNS() + time).count();
+        const s64 cap = timer_spin_cap_ns.load(std::memory_order_relaxed);
         for (;;) {
             if (is_set.exchange(0) != 0) {
                 return true;
             }
             const s64 now = clock.GetTimeNS().count();
-            const s64 wake_at = deadline_ns - timer_slack->Margin();
+            const s64 margin = timer_slack->Margin();
+            const s64 wake_at = deadline_ns - (cap > 0 && cap < margin ? cap : margin);
             if (wake_at <= now) {
                 break;
             }

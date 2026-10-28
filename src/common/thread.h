@@ -29,6 +29,11 @@ namespace Common {
 /// timed wait.
 void SetPreciseTimerSleeps(bool enabled);
 [[nodiscard]] bool IsPreciseTimerSleeps();
+/// Caps the CPU spin a timed wait does before its deadline (0 keeps the full margin). The spin
+/// follows the timer's learned lateness, which on a coarse timer costs most of a core on the
+/// thread that waits for guest timing events; a shorter cap trades wake precision for that core.
+void SetTimerSpinCap(std::chrono::nanoseconds cap);
+[[nodiscard]] std::chrono::nanoseconds GetTimerSpinCap();
 #endif
 
 class Event {
