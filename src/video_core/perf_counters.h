@@ -113,6 +113,7 @@ enum class Counter : size_t {
     DrawStageBuffersNs,    ///< of the descriptor phase: each stage's host-side constant buffers
     CbvTablesFresh,        ///< descriptor tables written: no recent table matched
     DrawUniformBindNs,     ///< of that: the whole BindHostGraphicsUniformBuffers of a stage
+    DrawStageRestNs,       ///< of that: the stage's storage and texel buffers
     DrawUniformSetupNs,    ///< of a cbuf: reading its state, resolving the buffer, the LRU touch
     DrawUniformDecideNs,   ///< of a cbuf: streamed or cached, and whether it has to be re-bound
     DrawUniformStreamNs,   ///< of a cbuf: staging the guest bytes and recording the CBV
@@ -394,12 +395,19 @@ public:
         }
     }
     ~ScopedNsTimer() {
-        if (enabled) {
-            Add(ns_counter,
-                static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                     std::chrono::steady_clock::now() - start)
-                                     .count()));
+        Stop();
+    }
+
+    /// Ends the scope early (a later part of the function is reported apart from this one).
+    void Stop() {
+        if (!enabled) {
+            return;
         }
+        enabled = false;
+        Add(ns_counter,
+            static_cast<u64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                 std::chrono::steady_clock::now() - start)
+                                 .count()));
     }
 
     ScopedNsTimer(const ScopedNsTimer&) = delete;

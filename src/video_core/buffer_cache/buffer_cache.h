@@ -440,15 +440,35 @@ void BufferCache<P>::BindHostStageBuffers(size_t stage, bool sampled_cbufs, bool
     if (sampled_cbufs && first_stage) {
         VideoCore::Perf::Add(VideoCore::Perf::Counter::CbvSampledDraws, 1);
     }
+    // Five stages are visited for every draw; most of them bind nothing at all. Check the masks
+    // once here instead of entering three loops per stage that each find no bit set.
+    const u32 uniform_mask = channel_state->enabled_uniform_buffer_masks[stage];
+    const u32 storage_mask = channel_state->enabled_storage_buffers[stage];
+    const u32 texture_mask = channel_state->enabled_texture_buffers[stage];
+    if ((uniform_mask | storage_mask | texture_mask) == 0) {
+        return;
+    }
     // The cbufs of a sampled draw are timed whole (early returns included) and split per cbuf
     // below, so the report can separate their share of the stage from the storage and texel
     // buffers that follow. Counter::Count leaves the timer off outside the sampled draws.
     VideoCore::Perf::ScopedNsTimer uniform_timer{
         sampled_cbufs ? VideoCore::Perf::Counter::DrawUniformBindNs
                       : VideoCore::Perf::Counter::Count};
-    BindHostGraphicsUniformBuffers(stage, sampled_cbufs);
-    BindHostGraphicsStorageBuffers(stage);
-    BindHostGraphicsTextureBuffers(stage);
+    if (uniform_mask != 0) {
+        BindHostGraphicsUniformBuffers(stage, sampled_cbufs);
+    }
+    uniform_timer.Stop();
+    // The rest of the stage is reported apart from the cbufs, so a change to either side can be
+    // told from the other in the sampled draws.
+    VideoCore::Perf::ScopedNsTimer rest_timer{
+        sampled_cbufs ? VideoCore::Perf::Counter::DrawStageRestNs
+                      : VideoCore::Perf::Counter::Count};
+    if (storage_mask != 0) {
+        BindHostGraphicsStorageBuffers(stage);
+    }
+    if (texture_mask != 0) {
+        BindHostGraphicsTextureBuffers(stage);
+    }
 }
 
 template <class P>

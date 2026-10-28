@@ -530,8 +530,7 @@ void GraphicsPipeline::Configure(bool is_indexed, const PipelineBindContext& con
         }
         const StageBindings& info = *stage_infos[stage];
         buffer_cache.UnbindGraphicsStorageBuffers(stage);
-        size_t ssbo_index = 0;
-        for (const auto& desc : info.storage_buffers_descriptors) {
+        size_t ssbo_index = 0;        for (const auto& desc : info.storage_buffers_descriptors) {
             buffer_cache.BindGraphicsStorageBuffer(stage, ssbo_index, desc.cbuf_index,
                                                    desc.cbuf_offset, desc.is_written);
             ++ssbo_index;
