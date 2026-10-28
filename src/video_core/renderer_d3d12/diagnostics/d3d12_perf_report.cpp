@@ -359,14 +359,16 @@ void RendererD3D12::ReportPerfWindow(u32 frames, double total_ms) {
         LOG_INFO(Render,
                  "D3D12 draw detail: flush cache {:.1f} ms, pipeline lookup {:.1f} ms, predicate "
                  "{:.1f} ms, tick work {:.1f} ms, attachments {:.1f} ms, bind state {:.1f} ms, "
-                 "finish targets {:.1f} ms, descriptor acquire {:.1f} ms, stage buffers {:.1f} ms "
-                 "[cbufs {:.1f} ms], table finalize {:.1f} ms",
+                 "finish targets {:.1f} ms, descriptor acquire {:.1f} ms, descriptor build {:.1f} ms, "
+                 "stage buffers {:.1f} ms [cbufs {:.1f} ms], table finalize {:.1f} ms",
                  ms(get(Counter::DrawFlushCacheNs)), ms(get(Counter::DrawPipelineLookupNs)),
                  ms(get(Counter::DrawPredicateNs)), ms(get(Counter::DrawTickWorkNs)),
                  ms(get(Counter::DrawPrepareAttachmentsNs)), ms(get(Counter::DrawBindStateNs)),
                  ms(get(Counter::DrawFinishTargetsNs)), ms(get(Counter::DrawDescriptorAcquireNs)),
-                 ms(get(Counter::DrawStageBuffersNs)), ms(get(Counter::DrawUniformBindNs)),
-                 ms(get(Counter::DrawTableFinalizeNs)));
+                 ms(get(Counter::DrawDescriptorBuildNs)), ms(get(Counter::DrawStageBuffersNs)),
+                 ms(get(Counter::DrawUniformBindNs)), ms(get(Counter::DrawTableFinalizeNs)));
+        LOG_INFO(Render, "D3D12 table writes: {} fresh, {} reused",
+                 get(Counter::CbvTablesFresh), get(Counter::DescriptorTableReuses));
         // The per-cbuf phases only lap on the draws whose stage bindings are sampled (one in 64),
         // so per_cbuf is the cost of one cbuf and cbufs_per_draw scales it back to a whole draw.
         // Dividing by every cbuf bound instead would understate it 64 times.
