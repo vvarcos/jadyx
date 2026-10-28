@@ -113,13 +113,21 @@ void nvdisp_disp0::Composite(std::span<const Nvnflinger::HwcLayer> sorted_layers
         const auto interval = std::chrono::duration_cast<Clock::duration>(
             std::chrono::duration<double>(1.0 / static_cast<double>(fps)));
         const Clock::time_point now = Clock::now();
-        if (next_present.time_since_epoch().count() == 0 || next_present < now - interval) {
-            // First frame, or the guest fell far behind: restart the cadence instead of trying to
-            // catch up a backlog it would then run as fast frames to burn down.
+        if (next_present.time_since_epoch().count() == 0) {
             next_present = now;
         }
-        next_present += interval;
-        std::this_thread::sleep_until(next_present);
+        const Clock::time_point target = next_present + interval;
+        if (target > now) {
+            // Sleep only what is left of the interval: never more, so a frame that is already at
+            // the rate is not pushed past it.
+            std::this_thread::sleep_until(target);
+            next_present = target;
+            VideoCore::Perf::AddDetailed(VideoCore::Perf::Counter::FramePaced, 1);
+        } else {
+            // The guest is slower than the cap: restart the cadence from now instead of keeping a
+            // backlog, which would come out as bursts of fast frames (the game speeds up).
+            next_present = now;
+        }
     }
     system.GetPerfStats().EndSystemFrame();
     system.GetPerfStats().BeginSystemFrame();
